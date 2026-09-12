@@ -1,0 +1,7 @@
+# Runtime dependencies for the TSN-5G UE Console backend.
+# The web UI has NO dependencies (vanilla HTML/CSS/JS, served by http.server).
+
+PyYAML>=6.0          # config file parsing
+pyroute2>=0.7        # netlink: create bridges / VXLAN / VLAN interfaces
+pyserial>=3.5        # AT commands to the Quectel modem over /dev/ttyUSB*
+paramiko>=3.0        # SSH to the FS TSN3220 switch (H3C Comware CLI)

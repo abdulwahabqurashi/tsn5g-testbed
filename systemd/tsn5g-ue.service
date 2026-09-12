@@ -1,0 +1,20 @@
+[Unit]
+Description=TSN-5G UE Console (device-side TSN translator + control API)
+Documentation=https://github.com/AMRC/tsn5g-ue-app
+# Needs the network stack and the modem manager settled first.
+After=network.target ModemManager.service
+Wants=network.target
+
+[Service]
+Type=simple
+# Runs as root: creates bridges/VXLAN/VLAN interfaces, drives the modem, runs ptp4l.
+User=root
+ExecStart=/usr/bin/python3 -m tsn5g_ue -c /etc/tsn5g-ue/tsn5g-ue.yaml
+WorkingDirectory=/opt/tsn5g-ue
+Restart=on-failure
+RestartSec=3
+# Persistent state (last-good config for auto-resume) lives here.
+StateDirectory=tsn5g-ue
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,103 @@
+#
+# TSN-5G UE Console — configuration
+#
+# Copy to /etc/tsn5g-ue/tsn5g-ue.yaml (the installer does this) and adjust.
+# Most fields are auto-detected at runtime; the values here are defaults/fallbacks
+# and the seed for the Connect wizard.
+#
+
+# ---------------------------------------------------------------------------
+# Base OS provider. 'auto' detects OpenWRT vs generic Linux at start-up.
+#   auto     -> OpenWRT if /etc/openwrt_release (or uci) is present, else linux
+#   openwrt  -> force UCI / netifd / uqmi / iwinfo / procd
+#   linux    -> force NetworkManager / iproute2 / qmicli / systemd
+# ---------------------------------------------------------------------------
+platform: auto
+
+# ---------------------------------------------------------------------------
+# 5G modem (Quectel RM520N-GL)
+# ---------------------------------------------------------------------------
+modem:
+  device: /dev/ttyUSB2       # AT-command serial port (auto-detected if omitted)
+  wwan_interface: wwan0      # WWAN data interface
+  qmi_device: /dev/cdc-wdm0  # QMI control device (for qmicli data-format / raw-ip)
+  dnn: tsn                   # Data Network Name for the TSN session
+  cid: 1                     # PDP context id
+  baud_rate: 115200
+
+# ---------------------------------------------------------------------------
+# Transport: how L2 traffic crosses the 5G user plane
+#   mode: ethernet  -> native Ethernet PDU session (modem in 802-3 mode)
+#         vxlan     -> VXLAN overlay over an IP PDU session
+# ---------------------------------------------------------------------------
+transport:
+  mode: vxlan                # ethernet | vxlan
+
+# VXLAN overlay settings (used when transport.mode == vxlan)
+vxlan:
+  core_ip: 10.45.0.1         # NW-TT / core VXLAN remote endpoint
+  mtu: 1450                  # headroom for VXLAN+UDP+IP+outer-Ethernet over a 1500 underlay
+  # Per-traffic-class overlay map. VNI defaults to the VLAN id.
+  # role is a friendly label surfaced in the UI.
+  vlan_map:
+    - { vlan: 60, vni: 60, dstport: 4789, pcp: 7, dscp: 46, role: control  }
+    - { vlan: 70, vni: 70, dstport: 4790, pcp: 4, dscp: 34, role: hp_video }
+    - { vlan: 80, vni: 80, dstport: 4791, pcp: 0, dscp: 0,  role: be_video }
+  ptp:
+    vni: 88
+    dstport: 4792
+
+# ---------------------------------------------------------------------------
+# Local kernel bridge (device-side TSN translator)
+# ---------------------------------------------------------------------------
+bridge:
+  name: ds-tt-br0
+  stp: false
+  vlan_filtering: true
+  group_fwd_mask: 0x4000     # forward LLDP (01:80:c2:00:00:0e) for TSN topology discovery
+  ageing_time: 0             # static forwarding
+
+# Wired TSN NICs to bridge onto the 5G link (auto-detected; confirm in the wizard)
+tsn_nics:
+  - interface: enp2s0
+    hw_timestamping: true
+
+# ---------------------------------------------------------------------------
+# gPTP / IEEE 802.1AS (ptp4l transparent clock + phc2sys)
+# ---------------------------------------------------------------------------
+gptp:
+  enabled: true
+  time_domain_number: 0
+  transport_specific: 1      # 1 = 802.1AS
+  priority1: 255             # never become grandmaster
+
+# ---------------------------------------------------------------------------
+# DS-TT Time-Aware Shaper (IEEE 802.1Qbv "slotting") applied via `tc taprio`.
+# Reuses the same named presets as the switch so both stay phase-aligned.
+# Applied AFTER gPTP has locked. `interface` defaults to the first hw-timestamp NIC.
+# ---------------------------------------------------------------------------
+tas:
+  default_profile: urllc-5qi82
+
+# ---------------------------------------------------------------------------
+# Wired TSN switch (FS TSN3220) — target for one-click 802.1Qbv presets
+# ---------------------------------------------------------------------------
+switch:
+  host: 192.168.1.1
+  user: admin
+  # password is entered in the UI per-apply and NOT stored here by default
+  ports: "1-8"
+  default_profile: urllc-5qi82
+
+# ---------------------------------------------------------------------------
+# Web UI / control API
+# ---------------------------------------------------------------------------
+api:
+  enabled: true
+  host: 0.0.0.0
+  port: 8080
+
+# Where the daemon persists last-good state for auto-resume on reboot
+state_file: /var/lib/tsn5g-ue/state.json
+
+log_level: info              # debug | info | warning | error

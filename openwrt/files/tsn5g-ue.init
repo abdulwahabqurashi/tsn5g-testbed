@@ -1,0 +1,36 @@
+#!/bin/sh /etc/rc.common
+# procd init script for the TSN-5G UE Console (OpenWRT).
+#
+# Equivalent of the systemd unit, but for OpenWRT's procd. Installed to
+# /etc/init.d/tsn5g-ue by the package. Enable + start with:
+#   /etc/init.d/tsn5g-ue enable
+#   /etc/init.d/tsn5g-ue start
+
+START=95
+STOP=10
+USE_PROCD=1
+
+PROG="/usr/bin/python3"
+APP_DIR="/usr/lib/tsn5g-ue"
+CONFIG="/etc/tsn5g-ue/tsn5g-ue.yaml"
+
+start_service() {
+    procd_open_instance
+    procd_set_param command "$PROG" -m tsn5g_ue -c "$CONFIG"
+    procd_set_param env PYTHONPATH="$APP_DIR"
+    # Restart on crash: wait 5s, up to 5 quick failures before backing off.
+    procd_set_param respawn 3600 5 5
+    procd_set_param stdout 1
+    procd_set_param stderr 1
+    procd_set_param pidfile /var/run/tsn5g-ue.pid
+    procd_close_instance
+}
+
+stop_service() {
+    :
+}
+
+reload_service() {
+    stop
+    start
+}

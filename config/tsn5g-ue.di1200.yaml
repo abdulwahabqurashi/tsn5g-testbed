@@ -1,0 +1,55 @@
+platform: auto
+modem:
+  wwan_interface: wwan0
+  qmi_device: /dev/cdc-wdm0
+  dnn: usrptsn
+  cid: 1
+  baud_rate: 115200
+transport:
+  mode: vxlan
+vxlan:
+  core_ip: 10.45.0.1
+  mtu: 1350
+  vlan_map:
+  - vlan: 60
+    vni: 60
+    pcp: 7
+    dscp: 46
+    role: control
+  - vlan: 70
+    vni: 70
+    pcp: 4
+    dscp: 34
+    role: hp_video
+  - vlan: 80
+    vni: 80
+    pcp: 0
+    dscp: 0
+    role: be_video
+  ptp:
+    vni: 88
+    dstport: 4792
+bridge:
+  name: ds-tt-br0
+  stp: false
+  vlan_filtering: true
+  group_fwd_mask: 16384
+  ageing_time: 0
+tsn_nics: []
+gptp:
+  enabled: false
+tas:
+  default_profile: urllc-5qi82
+speedtest:
+  server: 10.45.0.1
+  duration: 5
+switch:
+  host: 192.168.1.1
+  user: admin
+  ports: 1-8
+api:
+  enabled: true
+  host: 0.0.0.0
+  port: 8080
+state_file: /home/amrc/tsn5g-ue-app/state.json
+log_level: info

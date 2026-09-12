@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tsn5g-ue"
+version = "0.1.0"
+description = "Plug-and-play UE-side console for TSN-over-5G (modem attach, VXLAN/Ethernet transport, wired TSN switch config)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "AGPL-3.0-or-later" }
+authors = [{ name = "AMRC / University of Sheffield" }]
+dependencies = [
+    "PyYAML>=6.0",
+    "pyroute2>=0.7",
+    "pyserial>=3.5",
+    "paramiko>=3.0",
+]
+
+[project.scripts]
+tsn5g-ue = "tsn5g_ue.__main__:main"
+
+[tool.setuptools]
+# The web/ tree is data shipped alongside the package and located at runtime.
+packages = ["tsn5g_ue", "tsn5g_ue.transport", "tsn5g_ue.platform"]
+
+[tool.setuptools.package-data]
+tsn5g_ue = ["../web/**/*"]
