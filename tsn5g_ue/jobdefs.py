@@ -266,5 +266,75 @@ def register_all(jobs, controller):
                   explain="Removes the policy-routing rules. Traffic that was "
                           "going over 5G returns to the wired path.")
 
+    # -- registration -------------------------------------------------------
+    def radio_prefs(ctx):
+        p = ctx.params
+        return controller.radio.set_prefs(
+            mode_pref=p.get("mode_pref"), nr5g_band=p.get("nr5g_band"),
+            nr5g_disable_mode=p.get("nr5g_disable_mode"), ctx=ctx)
+
+    def radio_plmn(ctx):
+        p = ctx.params
+        return controller.radio.select_plmn(
+            plmn=p.get("plmn"), mode=p.get("mode", "manual"),
+            act=p.get("act", 11), ctx=ctx)
+
+    def radio_clear_forbidden(ctx):
+        return controller.radio.clear_forbidden(ctx.params["plmn"], ctx=ctx)
+
+    def radio_lock(ctx):
+        p = ctx.params
+        return controller.radio.set_cell_lock(
+            arfcn=p["arfcn"], scs=p.get("scs", 1), band=p.get("band", 78),
+            pci=p.get("pci", 1), ctx=ctx)
+
+    def radio_unlock(ctx):
+        return controller.radio.clear_cell_lock(ctx=ctx)
+
+    def radio_scan(ctx):
+        """Suspend telemetry: a 4-minute scan would otherwise make every poll
+        skip and report stale readings for the duration."""
+        poller = getattr(controller, "signal_poller", None)
+        was = poller.enabled if poller else None
+        if poller:
+            poller.configure(enabled=False)
+            ctx.log("signal polling paused for the scan")
+        try:
+            return controller.radio.scan(kind=ctx.params.get("kind", "both"),
+                                         ctx=ctx)
+        finally:
+            if poller and was is not None:
+                poller.configure(enabled=was)
+                ctx.log("signal polling resumed")
+
+    def radio_camp(ctx):
+        return controller.radio.wait_for_camp(
+            timeout=ctx.params.get("timeout_s", 120), ctx=ctx)
+
+    def radio_diagnose(ctx):
+        return controller.radio.diagnose(ctx=ctx)
+
+    def radio_repair_bands(ctx):
+        return controller.radio.repair_bands(
+            band=ctx.params.get("band", "78"), ctx=ctx)
+
+    jobs.register("radio.prefs", radio_prefs, LANE_MODEM)
+    jobs.register("radio.plmn", radio_plmn, LANE_MODEM, confirm=True,
+                  explain="Re-selecting the operator deregisters first, so the "
+                          "bearer drops until the UE camps again.")
+    jobs.register("radio.clear_forbidden", radio_clear_forbidden, LANE_MODEM)
+    jobs.register("radio.lock", radio_lock, LANE_MODEM, confirm=True,
+                  explain="Locking to a cell power-cycles the radio. A wrong "
+                          "ARFCN or PCI leaves the UE unable to camp at all "
+                          "until the lock is cleared.")
+    jobs.register("radio.unlock", radio_unlock, LANE_MODEM)
+    jobs.register("radio.scan", radio_scan, LANE_MODEM)
+    jobs.register("radio.camp", radio_camp, LANE_MODEM)
+    jobs.register("radio.diagnose", radio_diagnose, LANE_MODEM)
+    jobs.register("radio.repair_bands", radio_repair_bands, LANE_MODEM,
+                  confirm=True,
+                  explain="Rewrites the band mask, briefly powering the radio "
+                          "down. Used when the mask is stuck at zero.")
+
     logger.debug("registered %d job kinds", len(jobs.kinds()))
     return jobs

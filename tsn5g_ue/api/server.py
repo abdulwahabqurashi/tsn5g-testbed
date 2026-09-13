@@ -287,14 +287,30 @@ class ApiServer:
 
 
 def build_router():
-    """Assemble the route table from every routes_* module."""
-    from . import (routes_bearer, routes_connect, routes_jobs, routes_logs,
-                   routes_modem,
-                   routes_net, routes_perf, routes_routing, routes_signal,
-                   routes_system, routes_tsn)
+    """Assemble the route table from every routes_* module.
+
+    Discovered rather than listed. The previous version had an import tuple and
+    a separate registration tuple that both had to be edited; they drifted, and
+    a whole module's routes silently went missing while its jobs registered
+    fine — so the failure looked like "the endpoints vanished" rather than
+    "someone forgot a line".
+    """
+    import importlib
+    import pkgutil
+
+    package = importlib.import_module(__package__)
     router = Router()
-    for mod in (routes_system, routes_jobs, routes_logs, routes_connect,
-                routes_bearer, routes_modem, routes_signal, routes_net,
-                routes_routing, routes_perf, routes_tsn):
-        mod.register(router)
+    # Order matters only for readability of GET /api/spec.
+    found = sorted(
+        name for _, name, _ in pkgutil.iter_modules(package.__path__)
+        if name.startswith("routes_")
+    )
+    for name in found:
+        mod = importlib.import_module(f".{name}", __package__)
+        register = getattr(mod, "register", None)
+        if register is None:
+            logger.warning("%s has no register(); skipping", name)
+            continue
+        register(router)
+    logger.debug("router: %d routes from %d modules", len(router), len(found))
     return router

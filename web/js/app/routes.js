@@ -46,6 +46,14 @@ export const ROUTES = [
     load: () => import("../views/modem.js"),
   },
   {
+    name: "registration",
+    path: "/registration",
+    title: "Registration",
+    icon: "radio",
+    section: "radio",
+    load: () => import("../views/registration.js"),
+  },
+  {
     name: "signal",
     path: "/signal",
     title: "Signal",

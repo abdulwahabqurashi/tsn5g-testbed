@@ -166,6 +166,24 @@ export function createApi({ base = "", timeout = 8000, fetchImpl, onCall } = {})
       releaseBus: (o) => POST("/api/modem/bus/release", {}, o),
     },
 
+    radio: {
+      state: (o) => GET("/api/radio", o),
+      prefs: (o) => GET("/api/radio/prefs", o),
+      setPrefs: (body, o) => PUT("/api/radio/prefs", body, o),
+      selectPlmn: (body, o) => POST("/api/radio/plmn/select", body, o),
+      forbidden: (o) => GET("/api/radio/plmn/forbidden", o),
+      clearForbidden: (plmn, o) =>
+        request("DELETE", `/api/radio/plmn/forbidden/${encodeURIComponent(plmn)}`, o),
+      lock: (o) => GET("/api/radio/lock", o),
+      setLock: (body, o) => PUT("/api/radio/lock", body, o),
+      clearLock: (o) => request("DELETE", "/api/radio/lock", o),
+      // Scans take minutes; the job returns immediately and progress streams.
+      scan: (body, o) => POST("/api/radio/scan", body, o),
+      camp: (body, o) => POST("/api/radio/camp/wait", body, o),
+      diagnose: (o) => POST("/api/radio/diagnose", {}, o),
+      repairBands: (body, o) => POST("/api/radio/band/repair", body, o),
+    },
+
     signal: {
       now: (o) => GET("/api/signal", o),
       sample: (o) => POST("/api/signal/sample", {}, { ...o, timeout: 15000 }),

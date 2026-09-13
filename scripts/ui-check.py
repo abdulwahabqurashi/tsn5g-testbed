@@ -367,6 +367,25 @@ def main():
               "address changes" in text,
               "SNAT would go stale when the UE address changes")
 
+        # ---- Phase 5: registration ----------------------------------------
+        print("=== registration view ===")
+        m.script("window.location.hash = '#/registration';")
+        m.wait_for("window.__tsn.store.get().ui.route === 'registration'",
+                   timeout=15, label="registration route")
+        m.wait_for("document.getElementById('content').textContent.length > 300",
+                   timeout=25, label="registration content")
+        text = m.script("return document.getElementById('content').textContent;")
+        check("registration view mounted", m.script(CARD_COUNT) >= 5,
+              f"{m.script(CARD_COUNT)} cards")
+        check("serving cell shown", "ARFCN" in text)
+        # The derived flag rather than a numeric field is the whole point: it
+        # is the setting most likely to strand the rig and it looks harmless.
+        check("SA-only is a derived state, not a numeric field",
+              "SA only" in text and "disable_mode" in text)
+        check("cell lock controls present", "Lock to cell" in text or "Clear lock" in text)
+        check("survey controls present",
+              "Scan cells" in text and "Diagnose RF" in text)
+
         # ---- console errors ----------------------------------------------------
         print("=== console ===")
         errs = m.script("return (window.__tsn_errors || []).length;") or 0

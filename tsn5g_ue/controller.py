@@ -23,6 +23,7 @@ from .modem import ModemManager
 from .modem.bus import ModemBus
 from .modem.power import PowerControl
 from .modem.qmi import QmiClient
+from .modem.radio import RadioControl
 from .modem.signal import SignalPoller
 from .net.bearer import BearerManager
 from .net.routing import RoutingManager
@@ -58,6 +59,7 @@ class Controller:
         self.qmi = QmiClient(device=self.bus.ports().get("qmi")
                              or config.modem.get("qmi_device"))
         self.power = PowerControl(self.bus, events=events)
+        self.radio = RadioControl(self.bus, events=events)
         self.signal_poller = SignalPoller(self.modem, self.bus, events=events,
                                           store=store)
         self.bearer = BearerManager(config, self.qmi, modem=self.modem,
