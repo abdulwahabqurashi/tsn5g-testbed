@@ -17,7 +17,7 @@ import { defineView } from "../core/component.js";
 import { confirm, toast } from "../core/dialog.js";
 import { clear, h } from "../core/dom.js";
 import { ago, ms, nn } from "../core/format.js";
-import { badge, btnRow, button, card, field, row, table } from "../ui/widgets.js";
+import { badge, btnRow, button, card, field, kpi, row, table } from "../ui/widgets.js";
 
 const STEP_LABELS = {
   preflight: "Pre-flight",
@@ -74,18 +74,30 @@ export default defineView({
     function paintState(b) {
       clear(stateBody);
       const up = b.state === "up";
-      stateBody.appendChild(row("State", badge(b.state || "unknown",
-                                               up ? "green" : "gray")));
-      stateBody.appendChild(row("UE address", b.ipv4, { mono: true }));
-      stateBody.appendChild(row("Gateway", b.gateway, { mono: true }));
-      stateBody.appendChild(row("MTU", b.mtu));
-      stateBody.appendChild(row("APN", b.apn, { mono: true }));
-      stateBody.appendChild(row("DNS", (b.dns || []).join(", ") || null,
-                                { mono: true }));
-      stateBody.appendChild(row("Carrier", b.carrier
-        ? badge(b.carrier, b.carrier === "up" ? "green" : "gray") : null));
-      stateBody.appendChild(row("QMI handle",
+
+      // Lead with the two things being asked: is it up, and on what address.
+      // This was a flat list of eight label/value rows in which the state and
+      // the UE address carried no more weight than the MTU.
+      stateBody.appendChild(h("div", { class: "state-hero" },
+        h("span", { class: `state-dot ${up ? "ok" : "idle"}` }),
+        h("div", null,
+          h("div", { class: "big-state",
+                     text: up ? "Connected" : (b.state || "unknown") }),
+          h("div", { class: "mono state-addr", text: b.ipv4 || "no address" }))));
+
+      stateBody.appendChild(h("div", { class: "kpis" },
+        kpi("APN", b.apn),
+        kpi("MTU", b.mtu),
+        kpi("Carrier", b.carrier)));
+
+      const details = h("div", { class: "detail-list" });
+      details.appendChild(row("Gateway", b.gateway, { mono: true }));
+      details.appendChild(row("DNS", (b.dns || []).join(", ") || null,
+                              { mono: true }));
+      details.appendChild(row("QMI handle",
         b.pdh ? `${b.pdh} / cid ${b.cid ?? "—"}` : null, { mono: true }));
+      stateBody.appendChild(details);
+
       // Without a handle the call can only be abandoned, not stopped: the
       // interface gets flushed while the session stays alive in the modem.
       if (up && !b.pdh) {
@@ -96,10 +108,11 @@ export default defineView({
           + "it."));
       }
       if (b.routes?.length) {
-        stateBody.appendChild(h("div", { class: "kpi-label",
-          style: { "margin-top": "10px" }, text: "Routes" }));
-        stateBody.appendChild(h("pre", { class: "log",
-          style: { "max-height": "90px" }, text: b.routes.join("\n") }));
+        stateBody.appendChild(h("details", { class: "raw-output" },
+          h("summary", { class: "hint",
+                         text: `Routes on ${b.interface || "the bearer"}` }),
+          h("pre", { class: "log", style: { "max-height": "90px" },
+                     text: b.routes.join("\n") })));
       }
       if (!up) {
         stateBody.appendChild(h("p", { class: "hint" },
@@ -123,6 +136,24 @@ export default defineView({
       }
     }
 
+    // The step states the job reports, mapped to the classes the stylesheet
+    // knows. These disagreed — the job says "succeeded" and the CSS styled
+    // ".done" — so every step rendered grey however it had actually gone, and
+    // there was no way to tell finished from pending from failed.
+    const STEP_CLASS = {
+      succeeded: "done", running: "active", failed: "err",
+      cancelled: "err", pending: "pending",
+    };
+
+    function stepDuration(s) {
+      if (!s.started) return null;
+      const end = s.finished || (s.state === "running" ? Date.now() / 1000 : null);
+      if (!end) return null;
+      const d = end - s.started;
+      if (d < 1) return `${Math.round(d * 1000)} ms`;
+      return `${d.toFixed(1)} s`;
+    }
+
     function paintSteps(job) {
       if (job?.state === "failed") logWrap.open = true;
       clear(stepsBody);
@@ -132,13 +163,39 @@ export default defineView({
           "No run yet. Progress appears here as each step completes."));
         return;
       }
-      const marks = { succeeded: "✓", running: "…", failed: "✕", pending: "" };
-      stepsBody.appendChild(h("div", { class: "stepper" },
-        ...steps.map((s, i) => h("div", { class: `step ${s.state}` },
-          h("span", { class: "bullet", text: marks[s.state] ?? String(i + 1) }),
-          h("span", null,
-            h("div", { text: STEP_LABELS[s.name] || s.name }),
-            h("div", { class: "hint", text: s.detail || STEP_HINTS[s.name] || "" }))))));
+
+      const done = steps.filter((s) => s.state === "succeeded").length;
+      const failed = steps.some((s) => s.state === "failed");
+      const current = steps.find((s) => s.state === "running");
+      const pct = job?.progress?.pct ?? Math.round((done / steps.length) * 100);
+
+      // A heading that answers "where is it now" without reading six rows.
+      stepsBody.appendChild(h("div", { class: "run-head" },
+        h("span", { class: `run-state ${failed ? "err" : current ? "active" : "done"}` },
+          failed ? "Failed" : current
+            ? (STEP_LABELS[current.name] || current.name)
+            : "Complete"),
+        h("span", { class: "run-count", text: `${done} of ${steps.length}` })));
+
+      const bar = h("div", { class: `run-bar ${failed ? "err" : current ? "active" : "done"}` },
+        h("i", { style: { width: `${Math.max(0, Math.min(100, pct))}%` } }));
+      stepsBody.appendChild(bar);
+
+      stepsBody.appendChild(h("ol", { class: "stepper" },
+        ...steps.map((s, i) => {
+          const cls = STEP_CLASS[s.state] || "pending";
+          const dur = stepDuration(s);
+          return h("li", { class: `step ${cls}` },
+            h("span", { class: "bullet", "aria-hidden": "true" },
+              cls === "done" ? "✓" : cls === "err" ? "✕"
+                : cls === "active" ? "" : String(i + 1)),
+            h("span", { class: "step-body" },
+              h("div", { class: "step-name",
+                         text: STEP_LABELS[s.name] || s.name }),
+              h("div", { class: "hint",
+                         text: s.detail || STEP_HINTS[s.name] || "" })),
+            h("span", { class: "step-time", text: dur || "" }));
+        })));
     }
 
     function appendLines(lines, from) {
@@ -251,8 +308,17 @@ export default defineView({
         paintState(await view.api.bearer.get({ signal: view.signal }));
       } catch (err) {
         if (err instanceof ApiError && err.isAborted) return;
+        // A bare "service unreachable" reads as a verdict about the bearer,
+        // which it is not — it is this page failing to reach the daemon, and
+        // it retries on its own. Say both, and offer the retry now.
         clear(stateBody);
-        stateBody.appendChild(h("p", { class: "muted", text: err.message }));
+        stateBody.appendChild(h("div", { class: "empty-state" },
+          h("div", { class: "big-state", text: "Console offline" }),
+          h("p", { class: "hint",
+            text: `Cannot reach the daemon: ${err.message}. This says nothing `
+                + "about the bearer — the data call lives in the modem and the "
+                + "kernel, not in this page." }),
+          btnRow(button("Retry now", { onclick: refresh }))));
       }
     }
 
@@ -265,7 +331,34 @@ export default defineView({
       }
     });
 
+    // Show the last bearer run when nothing is in flight. Without this the
+    // panel reset to "No run yet" on every reload, so the result of the
+    // connect you just watched was gone the moment you navigated away — and
+    // a failed attempt left nothing to look at.
+    async function showLastRun() {
+      if (activeJob) return;
+      try {
+        const res = await view.api.jobs.list(
+          { lane: "bearer", limit: 1 }, { signal: view.signal });
+        const last = (res.jobs || [])[0];
+        if (!last) return;
+        if (["queued", "running"].includes(last.state)) {
+          activeJob = last.id;
+          follow(last.id);
+          return;
+        }
+        const full = await view.api.jobs.get(last.id, { signal: view.signal });
+        paintSteps(full);
+        for (const line of full.lines || []) echo(`  ${line}`);
+      } catch (err) {
+        if (!(err instanceof ApiError && err.isAborted)) {
+          // Nothing to show is not an error worth a panel.
+        }
+      }
+    }
+
     await refresh();
+    await showLastRun();
     view.interval(refresh, 6000);
   },
 });

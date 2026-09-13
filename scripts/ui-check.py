@@ -231,12 +231,19 @@ def main():
         check("store has a controller snapshot",
               bool(m.script("return !!window.__tsn.store.get().status;")))
         # Headings come from mount(); values only appear if the subscriptions
-        # fired and painted without throwing.
-        txt = m.wait_for(
-            "document.getElementById('content').textContent.length > 300",
-            timeout=20, label="dashboard painted")
-        check("dashboard subscriptions populated the cards", bool(txt),
-              f"{m.script('return document.getElementById(\'content\').textContent.length;')} chars")
+        # fired and painted without throwing. Assert on a value that must be
+        # present rather than a character count — a count threshold failed the
+        # moment the core went unreachable and latency rendered as a dash,
+        # which says nothing about whether the view is wired.
+        m.wait_for("document.querySelectorAll('#content .kpi-val').length > 3",
+                   timeout=20, label="dashboard values to paint")
+        painted = m.script("""
+            return [...document.querySelectorAll('#content .kpi-val')]
+                   .filter(e => e.textContent.trim()
+                                && e.textContent.trim() !== '\u2014').length;
+        """)
+        check("dashboard subscriptions populated the cards", painted > 2,
+              f"{painted} KPI values carried real data")
         # The rewrite's reason: an index-based chart drew a dropped sample as a
         # fast one. Time-based means a gap is a gap.
         check("throughput chart is time-based",
@@ -342,7 +349,11 @@ def main():
         m.wait_for("document.getElementById('content').textContent.length > 150",
                    timeout=20, label="connection content")
         text = m.script("return document.getElementById('content').textContent;")
-        check("connection view shows bearer state", "UE address" in text)
+        # The address used to sit behind a "UE address" label among seven
+        # others; it is the card's headline now, so assert the value.
+        check("connection view shows bearer state",
+              bool(m.script("return !!document.querySelector('.state-addr');")),
+              "no address element in the bearer card")
         check("it drives bearer.up, not the legacy connect path",
               "Bring up" in text or "Restart call" in text,
               "legacy view said 'Connect to 5G'")
@@ -716,6 +727,47 @@ def main():
         check("the raw transcripts are still available",
               m.script("return document.querySelectorAll"
                        "('#content details.raw-output').length;") >= 1)
+
+        # ---- connection: the run is legible at a glance --------------------
+        print("=== connection: bearer card and stepper ===")
+        m.script("window.location.hash = '#/connection';")
+        m.wait_for("window.__tsn.store.get().ui.route === 'connection'",
+                   timeout=15, label="connection route")
+        m.wait_for("!!document.querySelector('.state-hero')", timeout=25,
+                   label="bearer state to paint")
+        check("the bearer card leads with state and address",
+              bool(m.script("return !!document.querySelector"
+                            "('.state-hero .big-state');")),
+              "eight equal-weight rows told you nothing first")
+        check("the status dot reflects the bearer, not a fixed colour",
+              m.script("return (document.querySelector('.state-dot')||{})"
+                       ".className;") in ("state-dot ok", "state-dot idle"))
+
+        # The step states the job reports and the classes the stylesheet knows
+        # drifted apart once already (job: succeeded, CSS: .done), and the
+        # symptom was every step rendering grey however it had gone.
+        steps = m.script("""
+            return [...document.querySelectorAll('.stepper .step')]
+                   .map(s => s.className);
+        """) or []
+        if steps:
+            known = ("done", "active", "err", "pending")
+            unstyled = [c for c in steps
+                        if not any(f" {k}" in f" {c}" for k in known)]
+            check("every step carries a state class the stylesheet styles",
+                  not unstyled, f"unstyled: {unstyled}")
+            check("a finished run shows completed steps as done",
+                  any("done" in c for c in steps) or any("err" in c for c in steps),
+                  f"classes were {steps}")
+            check("finished steps report how long they took",
+                  m.script("return [...document.querySelectorAll"
+                           "('.stepper .step.done .step-time')]"
+                           ".some(e => e.textContent.trim().length > 0);"),
+                  "the timings are in the job and were not shown")
+            check("the run has a heading naming where it is",
+                  bool(m.script("return !!document.querySelector('.run-state');")))
+            check("and a progress bar",
+                  bool(m.script("return !!document.querySelector('.run-bar > i');")))
 
         # ---- console errors ----------------------------------------------------
         print("=== console ===")

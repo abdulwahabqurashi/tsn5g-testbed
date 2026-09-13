@@ -210,16 +210,83 @@ table.tbl tr:hover td { background: var(--panel-2); }
 .topo-link .tl-q { font-size: .72rem; font-weight: 700; margin-bottom: 4px; }
 .topo-link .tl-lbl { font-size: .68rem; color: var(--faint); margin-top: 4px; }
 
-/* ---------- Stepper ---------- */
-.stepper { display: flex; flex-direction: column; gap: 2px; }
-.step { display: flex; align-items: center; gap: 12px; padding: 10px 4px; font-size: .9rem; }
-.step .bullet { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--line);
-  display: grid; place-items: center; font-size: .72rem; color: var(--faint); flex: none;
-  font-weight: 700; }
-.step.done .bullet { background: var(--green); border-color: var(--green); color: var(--panel); }
-.step.active .bullet { border-color: var(--blue); color: var(--blue); }
-.step.active { color: var(--blue); font-weight: 600; }
-.step.err .bullet { background: var(--red); border-color: var(--red); color: var(--panel); }
+/* ---------- Stepper ----------------------------------------------------
+   A run is a sequence, so it is drawn as one: a rail down the bullets, the
+   completed part of it coloured, and exactly one step carrying the eye.
+   The state classes here must match STEP_CLASS in views/connection.js — they
+   did not, so every step rendered grey whatever had happened to it. */
+
+.run-head { display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; margin-bottom: 8px; }
+.run-state { font-weight: 700; font-size: 1rem; }
+.run-state.active { color: var(--blue); }
+.run-state.done   { color: var(--green); }
+.run-state.err    { color: var(--red); }
+.run-count { color: var(--faint); font-size: .8rem; font-variant-numeric: tabular-nums; }
+
+.run-bar { height: 4px; border-radius: 999px; background: var(--line);
+  overflow: hidden; margin-bottom: 14px; }
+.run-bar > i { display: block; height: 100%; border-radius: 999px;
+  background: var(--blue); transition: width .35s ease; }
+.run-bar.done > i { background: var(--green); }
+.run-bar.err  > i { background: var(--red); }
+
+.stepper { display: flex; flex-direction: column; list-style: none;
+  margin: 0; padding: 0; }
+.step { display: grid; grid-template-columns: 26px 1fr auto;
+  align-items: start; gap: 12px; padding: 9px 2px; font-size: .9rem;
+  position: relative; }
+
+/* The rail. Drawn from each bullet to the next, so the last step has none. */
+.step::before { content: ""; position: absolute; left: 12px; top: 32px;
+  bottom: -9px; width: 2px; background: var(--line); }
+.step:last-child::before { display: none; }
+.step.done::before { background: var(--green); }
+
+.step .bullet { width: 26px; height: 26px; border-radius: 50%;
+  border: 2px solid var(--line); display: grid; place-items: center;
+  font-size: .72rem; color: var(--faint); font-weight: 700;
+  background: var(--panel); position: relative; z-index: 1; }
+
+.step-body { min-width: 0; }
+.step-name { font-weight: 600; }
+.step .hint { margin-top: 1px; }
+.step-time { color: var(--faint); font-size: .76rem;
+  font-variant-numeric: tabular-nums; padding-top: 4px; }
+
+.step.done .bullet { background: var(--green); border-color: var(--green);
+  color: #fff; }
+.step.done .step-name { color: var(--ink); }
+
+.step.err .bullet { background: var(--red); border-color: var(--red); color: #fff; }
+.step.err .step-name { color: var(--red); }
+
+.step.pending .bullet { background: var(--panel); }
+.step.pending .step-name, .step.pending .hint { opacity: .55; }
+
+/* The running step is the one the operator is waiting on, so it is the only
+   thing moving on the page. */
+.step.active .bullet { border-color: var(--blue); background: var(--blue); color: #fff; }
+.step.active .step-name { color: var(--blue); font-weight: 700; }
+.step.active .bullet::after { content: ""; position: absolute; inset: -5px;
+  border-radius: 50%; border: 2px solid var(--blue); opacity: .55;
+  animation: step-pulse 1.4s ease-out infinite; }
+
+@keyframes step-pulse {
+  0%   { transform: scale(.85); opacity: .6; }
+  70%  { transform: scale(1.35); opacity: 0; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
+
+/* Respect a reduced-motion preference: the colour already carries the state,
+   the animation only draws the eye to it. */
+@media (prefers-reduced-motion: reduce) {
+  .step.active .bullet::after { animation: none; opacity: .45; }
+  .run-bar > i { transition: none; }
+}
+
+:root[data-density="kiosk"] .step { padding: 13px 2px; font-size: .95rem; }
+:root[data-density="kiosk"] .step::before { top: 36px; }
 
 /* ---------- Guided setup timeline ---------- */
 .setup-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
@@ -427,3 +494,22 @@ body { font-family: var(--font-ui); font-size: var(--fs-body); }
 
 /* Kiosk: the disclosure triangle is a small target, so give it a real one. */
 :root[data-density="kiosk"] .raw-output > summary { padding: 10px 0; }
+
+/* ---- Empty / offline states --------------------------------------------
+   A panel with nothing in it should say why, not just be blank. */
+.empty-state { padding: 18px 2px; }
+.empty-state .big-state { margin-bottom: 6px; }
+.empty-state .hint { max-width: 46ch; }
+
+/* ---- Connection: bearer state ------------------------------------------
+   Status and address are what the panel is asked for; everything else is
+   detail. Previously all eight facts were the same size and weight. */
+.state-hero { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.state-dot { width: 12px; height: 12px; border-radius: 50%;
+  background: var(--faint); flex: none; }
+/* rgba rather than color-mix(): the baseline for this console is
+   Chromium/Firefox 90, and color-mix() wants 111/113. Matches .dot.ok above. */
+.state-dot.ok { background: var(--green); box-shadow: 0 0 0 4px rgba(22,179,100,.16); }
+.state-dot.idle { background: var(--faint); }
+.state-addr { font-size: .95rem; color: var(--faint); margin-top: 2px; }
+.detail-list { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
