@@ -62,8 +62,11 @@ export default defineView({
                                  value: spec.mark || "0x5" });
       inputs.table = h("input", { type: "number", class: "mini-input",
                                   value: String(spec.table ?? 5), min: "1", max: "252" });
+      // Prefill from config so the Verify panel is useful on arrival rather
+      // than only after the operator has typed something.
+      const coreIp = view.store.get().config?.vxlan?.core_ip;
       inputs.verifyDst = h("input", { type: "text", class: "mini-input",
-                                      value: spec.verify_dst || "",
+                                      value: spec.verify_dst || coreIp || "",
                                       placeholder: "10.5.0.219" });
       inputs.masq = h("input", { type: "checkbox" });
       inputs.masq.checked = spec.masquerade !== false;
@@ -268,6 +271,7 @@ export default defineView({
     }
 
     await refresh();
+    // refresh() builds the form, which is where verifyDst comes from.
     await runVerify();
     view.interval(refresh, 8000);
   },

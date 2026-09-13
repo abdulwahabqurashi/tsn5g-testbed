@@ -74,6 +74,14 @@ class BearerManager:
     def status(self):
         addr = self._current_address()
         state = self.qmi.load_state()
+        # _settings is in-memory, so a daemon restart loses it and a healthy
+        # bearer reports no gateway or MTU. Re-read from QMI when the link is
+        # up but we have nothing recorded.
+        if addr and not self._settings and state.get("pdh"):
+            try:
+                self._settings = self.qmi.current_settings()
+            except Exception:               # noqa: BLE001 — status must not fail
+                pass
         return {
             "interface": self.iface,
             "state": "up" if addr else "down",

@@ -5,8 +5,21 @@ def register(router):
 
     @router.get("/api/interfaces")
     def interfaces(req):
-        """Physical and virtual NICs with state, addresses and counters."""
-        return {"interfaces": req.ctx.controller.interfaces()}
+        """Physical and virtual NICs, and which one carries the default route.
+
+        The UI uses `management` to refuse to reconfigure the interface the
+        operator is connected over without a typed confirmation.
+        """
+        c = req.ctx.controller
+        mgmt = None
+        try:
+            mgmt = c.netiface.default_route_iface()
+        except Exception:           # noqa: BLE001 — never fail the listing
+            pass
+        ifaces = c.interfaces()
+        for i in ifaces:
+            i["management"] = (i.get("name") == mgmt)
+        return {"interfaces": ifaces, "management": mgmt}
 
     @router.post("/api/interfaces/config")
     def iface_config(req):

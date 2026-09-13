@@ -27,11 +27,23 @@ class NetIfaceManager:
     def __init__(self, cfg=None, platform=None):
         self.cfg = cfg or {}
         if platform is None:
-            from .platform import get_platform
+            from ..platform import get_platform
             platform = get_platform()
         self.platform = platform
 
     # ------------------------------------------------------------- discovery
+    def default_route_iface(self):
+        """Which interface carries the default route.
+
+        The UI needs this to refuse to reconfigure the NIC the operator is
+        connected over. It cannot be computed reliably in the browser: the
+        address list alone does not say which path a packet actually takes.
+        """
+        proc = utils.run(["ip", "route", "show", "default"], check=False,
+                         timeout=10)
+        m = re.search(r"default .*?\bdev\s+(\S+)", proc.stdout or "")
+        return m.group(1) if m else None
+
     def list_interfaces(self):
         if not utils.is_linux():
             return []
@@ -53,6 +65,7 @@ class NetIfaceManager:
                 "speed": self._speed(name, path),
                 "mtu": utils.read_sysfs(f"{path}/mtu"),
                 "ipv4": self._ipv4(name),
+                "cidr": self._cidr(name),
             })
         return out
 
@@ -70,6 +83,13 @@ class NetIfaceManager:
         if sp and sp.lstrip("-").isdigit() and int(sp) > 0:
             return f"{int(sp)} Mb/s"
         return None
+
+    def _cidr(self, name):
+        """Address with prefix, so the UI can show what it will replace."""
+        proc = utils.run(["ip", "-4", "-o", "addr", "show", name],
+                         check=False, timeout=10)
+        m = re.search(r"inet\s+(\d+\.\d+\.\d+\.\d+/\d+)", proc.stdout or "")
+        return m.group(1) if m else None
 
     def _ipv4(self, name):
         try:

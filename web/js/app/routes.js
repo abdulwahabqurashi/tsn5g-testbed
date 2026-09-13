@@ -35,7 +35,7 @@ export const ROUTES = [
     title: "Connection",
     icon: "bolt",
     section: "overview",
-    load: () => legacyView("setup"),
+    load: () => import("../views/connection.js"),
   },
   {
     name: "modem",
@@ -59,7 +59,7 @@ export const ROUTES = [
     title: "Interfaces",
     icon: "eth",
     section: "network",
-    load: () => legacyView("network"),
+    load: () => import("../views/interfaces.js"),
   },
   {
     name: "routing",

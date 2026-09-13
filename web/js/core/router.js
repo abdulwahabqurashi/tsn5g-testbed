@@ -14,6 +14,7 @@
  */
 
 import { runView } from "./component.js";
+import { clear } from "./dom.js";
 
 function parseHash(raw) {
   const hash = (raw || "").replace(/^#/, "") || "/";
@@ -67,6 +68,10 @@ export function createRouter({ routes, outlet, ctx, onChange, onError }) {
     }
     if (mine !== generation) return;    // navigated again during teardown
 
+    // Clear here rather than relying on the outgoing view to do it: a view
+    // that never finished mounting was never `active`, so nothing else would.
+    clear(outlet);
+
     onChange?.(route, params);
     current = route;
 
@@ -94,7 +99,9 @@ export function createRouter({ routes, outlet, ctx, onChange, onError }) {
     }
 
     if (mine !== generation) {
-      await instance.destroy();     // we lost the race; don't leak it
+      // Lost the race. Tear down this view's own registrations, but leave the
+      // outlet alone — the view that won is already rendering into it.
+      await instance.destroy({ clearRoot: false });
       return;
     }
 

@@ -58,6 +58,7 @@ def register(router):
         spec = dict(m.status().get("spec") or {})
         if req.opt("verify_dst"):
             spec["verify_dst"] = req.opt("verify_dst")
-        if not spec:
-            raise ApiError(400, "no profile applied and no verify_dst given")
+        # With nothing applied there is still a useful answer: where does the
+        # management path go right now? That is the baseline every later
+        # comparison is made against, so refusing here was unhelpful.
         return m.verify(spec)

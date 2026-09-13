@@ -324,6 +324,49 @@ def main():
         check("request inspector lists real calls",
               m.script("return (window.__tsn.recorder.all()||[]).length;") > 5)
 
+        # ---- Phase 4: connection, interfaces, routing ----------------------
+        print("=== connection view ===")
+        m.script("window.location.hash = '#/connection';")
+        m.wait_for("window.__tsn.store.get().ui.route === 'connection'",
+                   timeout=15, label="connection route")
+        m.wait_for("document.getElementById('content').textContent.length > 150",
+                   timeout=20, label="connection content")
+        text = m.script("return document.getElementById('content').textContent;")
+        check("connection view shows bearer state", "UE address" in text)
+        check("it drives bearer.up, not the legacy connect path",
+              "Bring up" in text or "Restart call" in text,
+              "legacy view said 'Connect to 5G'")
+
+        print("=== interfaces view ===")
+        m.script("window.location.hash = '#/interfaces';")
+        m.wait_for("window.__tsn.store.get().ui.route === 'interfaces'",
+                   timeout=15, label="interfaces route")
+        m.wait_for("document.querySelectorAll('table.tbl tr').length > 1",
+                   timeout=20, label="interface rows")
+        text = m.script("return document.getElementById('content').textContent;")
+        check("interfaces listed",
+              m.script("return document.querySelectorAll('table.tbl tr').length;") > 1)
+        # The interlock is the reason this view was rewritten.
+        check("the management interface is marked",
+              "management" in text, "backend reports which NIC holds the default route")
+        check("the bearer interface is not editable here",
+              "see Connection" in text, "wwan0 belongs to the bearer")
+
+        print("=== routing view ===")
+        m.script("window.location.hash = '#/routing';")
+        m.wait_for("window.__tsn.store.get().ui.route === 'routing'",
+                   timeout=15, label="routing route")
+        m.wait_for("document.getElementById('content').textContent.length > 300",
+                   timeout=20, label="routing content")
+        text = m.script("return document.getElementById('content').textContent;")
+        check("routing view mounted",
+              m.script(CARD_COUNT) >= 4, f"{m.script(CARD_COUNT)} cards")
+        check("verify panel ran ip route get",
+              "Management peer" in text or "Goes out" in text)
+        check("masquerade rationale is stated",
+              "address changes" in text,
+              "SNAT would go stale when the UE address changes")
+
         # ---- console errors ----------------------------------------------------
         print("=== console ===")
         errs = m.script("return (window.__tsn_errors || []).length;") or 0

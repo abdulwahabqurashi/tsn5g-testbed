@@ -11,10 +11,17 @@ export function card(title, opts = {}, ...body) {
 }
 
 export function row(key, value, opts = {}) {
+  // Accept a Node as well as a scalar: several views pass a badge here, and
+  // String(node) renders "[object HTMLSpanElement]".
+  let content;
+  if (value instanceof Node) content = value;
+  else if (value === null || value === undefined || value === "") content = DASH;
+  else content = String(value);
+
   return h("div", { class: "row" },
     h("span", { class: "k", text: key }),
     h("span", { class: `v${opts.mono ? " mono" : ""}${opts.cls ? ` ${opts.cls}` : ""}` },
-      value === null || value === undefined || value === "" ? DASH : String(value)));
+      content));
 }
 
 export function kpi(label, value, sub) {

@@ -78,7 +78,14 @@ export async function runView(spec, { root, ctx }) {
         console.error(`view "${spec.name}" update threw`, err);
       }
     },
-    async destroy() {
+    /**
+     * @param {{clearRoot?: boolean}} opts
+     *   clearRoot false when this view lost a navigation race: another view
+     *   already owns the outlet, and clearing it would wipe the winner's DOM.
+     *   That produced an empty page on fast navigation and looked like a
+     *   flaky timeout.
+     */
+    async destroy({ clearRoot = true } = {}) {
       // Abort first: in-flight requests resolve as cancelled rather than
       // landing on a DOM that is about to disappear.
       abort.abort();
@@ -96,7 +103,7 @@ export async function runView(spec, { root, ctx }) {
           console.error(`view "${spec.name}" destroy threw`, err);
         }
       }
-      clear(root);
+      if (clearRoot) clear(root);
     },
   };
 }
