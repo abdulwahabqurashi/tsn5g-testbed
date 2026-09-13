@@ -2,6 +2,7 @@
 # The web UI has NO dependencies (vanilla HTML/CSS/JS, served by http.server).
 
 PyYAML>=6.0          # config file parsing
-pyroute2>=0.7        # netlink: create bridges / VXLAN / VLAN interfaces
+# NOTE: no pyroute2. Every netlink operation deliberately shells out to iproute2
+# (see tsn5g_ue/utils.py) so the daemon has no compiled dependencies.
 pyserial>=3.5        # AT commands to the Quectel modem over /dev/ttyUSB*
 paramiko>=3.0        # SSH to the FS TSN3220 switch (H3C Comware CLI)

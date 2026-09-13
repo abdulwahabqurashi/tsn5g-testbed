@@ -1,20 +1,33 @@
 [Unit]
 Description=TSN-5G UE Console (device-side TSN translator + control API)
 Documentation=https://github.com/AMRC/tsn5g-ue-app
-# Needs the network stack and the modem manager settled first.
-After=network.target ModemManager.service
+After=network.target
 Wants=network.target
+# NOTE: deliberately NOT ordered after ModemManager.service. ModemManager is
+# masked by policy on a UE — it fights the daemon for /dev/ttyUSB* and rewrites
+# radio preferences. Ordering after a masked unit is a no-op at best.
+# See docs/reference/connect.sh for why `stop` alone is not enough (D-Bus
+# reactivates it; only `mask` holds it down).
 
 [Service]
 Type=simple
-# Runs as root: creates bridges/VXLAN/VLAN interfaces, drives the modem, runs ptp4l.
+# Runs as root: creates bridges/VXLAN/VLAN interfaces, drives the modem
+# (AT over /dev/ttyUSB*, qmicli over /dev/cdc-wdm0), and runs ptp4l.
 User=root
 ExecStart=/usr/bin/python3 -m tsn5g_ue -c /etc/tsn5g-ue/tsn5g-ue.yaml
 WorkingDirectory=/opt/tsn5g-ue
+Environment=PYTHONPATH=/opt/tsn5g-ue
 Restart=on-failure
 RestartSec=3
-# Persistent state (last-good config for auto-resume) lives here.
+# A visible, non-fatal warning rather than a hard dependency.
+ExecStartPre=-/bin/sh -c 'systemctl is-enabled ModemManager 2>/dev/null | grep -qx masked || logger -t tsn5g-ue "WARNING: ModemManager is not masked; it will contend for the modem"'
+# /var/lib/tsn5g-ue — persistent state (auto-resume, settings overlay, sqlite).
 StateDirectory=tsn5g-ue
+# /run/tsn5g-ue — bearer PDH/CID and applied routing rules. Must NOT survive a
+# reboot: neither does the data call they describe.
+RuntimeDirectory=tsn5g-ue
+# A wedged SSE stream or in-flight job must not block a restart indefinitely.
+TimeoutStopSec=15
 
 [Install]
 WantedBy=multi-user.target

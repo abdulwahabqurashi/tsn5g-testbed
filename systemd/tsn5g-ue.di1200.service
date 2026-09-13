@@ -1,0 +1,26 @@
+[Unit]
+Description=TSN-5G UE Console (DI-1200 dev deployment, runs in-place from the checkout)
+Documentation=https://github.com/AMRC/tsn5g-ue-app
+After=network-online.target
+Wants=network-online.target
+# NOT ordered after ModemManager.service — it is masked on this box by policy.
+# See docs/reference/connect.sh.
+
+[Service]
+Type=simple
+# Runs as root: drives the modem (AT/qmicli), creates bridges/VXLAN, runs ptp4l.
+# Single instance — systemd stops the old process before a restart, so there is
+# no "address already in use" race on :8080.
+User=root
+WorkingDirectory=/home/amrc/camera_application/tsn5g-ue-app
+Environment=PYTHONPATH=/home/amrc/camera_application/tsn5g-ue-app
+ExecStart=/usr/bin/python3 -m tsn5g_ue -c /home/amrc/camera_application/tsn5g-ue-app/config/tsn5g-ue.di1200.yaml
+ExecStartPre=-/bin/sh -c 'systemctl is-enabled ModemManager 2>/dev/null | grep -qx masked || logger -t tsn5g-ue "WARNING: ModemManager is not masked; it will contend for the modem"'
+Restart=on-failure
+RestartSec=3
+StateDirectory=tsn5g-ue
+RuntimeDirectory=tsn5g-ue
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

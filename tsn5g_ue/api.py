@@ -2,25 +2,24 @@
 Control + telemetry HTTP API, and static server for the web UI.
 
 Uses only the standard library (http.server) so the UI ships dependency-free.
+Everything here is blocking by design: pyserial reads, subprocess calls to
+qmicli/iperf3/ip, and paramiko SSH. Thread-per-request is the correct model for
+that workload; an event loop would buy a rewrite and still need a thread pool.
 
-GET  /                     -> web UI (static files from web/)
-GET  /api/status           -> controller.snapshot()
-GET  /api/health           -> controller.health()
-GET  /api/stats            -> stats.get_stats()
-GET  /api/discovery        -> detected modem + NICs + inferred role
-GET  /api/config           -> current config
-GET  /api/switch/profiles  -> Qbv preset list
-POST /api/connect          {mode,dnn,wired_nics,role}     -> start (async) connect
-POST /api/disconnect                                       -> teardown
-PUT  /api/config           {..patch..}                     -> update + persist config
-POST /api/switch/apply     {host,user,pass,profile,ports,dry_run}
-POST /api/switch/disable   {host,user,pass,ports}
-GET  /api/switch/status?host=..&ports=..
+The authoritative route list lives in docs/api-contract.md — it is generated
+from, and checked against, the running server. The docstring that used to sit
+here listed 13 of the 27 implemented routes and had been wrong for months.
+
+Response conventions:
+  * every response sets Content-Length (required: protocol_version is HTTP/1.1)
+  * every non-2xx JSON body is {"error": "<human readable>"}
+  * slow work returns 202 and is polled; see _async()
 """
 
 import json
 import logging
 import os
+import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -28,14 +27,42 @@ from urllib.parse import urlparse, parse_qs
 logger = logging.getLogger("tsn5g-ue.api")
 
 WEB_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web")
-_MIME = {".html": "text/html", ".css": "text/css", ".js": "application/javascript",
-         ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png",
-         ".ico": "image/x-icon"}
+_MIME = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
+         ".js": "text/javascript; charset=utf-8",
+         ".mjs": "text/javascript; charset=utf-8",
+         ".json": "application/json", ".map": "application/json",
+         ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon",
+         ".woff2": "font/woff2", ".txt": "text/plain; charset=utf-8",
+         ".csv": "text/csv; charset=utf-8"}
 
 
 class _Handler(BaseHTTPRequestHandler):
     controller = None
     stats = None
+
+    # HTTP/1.1 enables keep-alive, so the dashboard's several-endpoints-per-tick
+    # polling stops opening a fresh TCP connection (and a fresh thread) per
+    # request. Every response below sets Content-Length, which is what makes
+    # keep-alive safe; that invariant is now mandatory.
+    protocol_version = "HTTP/1.1"
+    # ...and the socket timeout is what stops an idle keep-alive connection
+    # pinning its handler thread forever. ThreadingHTTPServer has no thread
+    # pool, so a leaked thread is leaked until process exit.
+    timeout = 30
+
+    # -- CORS ---------------------------------------------------------------
+    def do_OPTIONS(self):
+        """Preflight. Without this, any UI served from a different origin (a dev
+        server on :5173) fails every JSON POST before it is sent."""
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods",
+                         "GET, POST, PUT, DELETE, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers",
+                         "Content-Type, Authorization, Last-Event-ID")
+        self.send_header("Access-Control-Max-Age", "600")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     # -- request routing ----------------------------------------------------
     def do_GET(self):
@@ -188,16 +215,30 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": "not found"})
             return
         ext = os.path.splitext(full)[1]
+        st = os.stat(full)
+        etag = '"%x-%x"' % (int(st.st_mtime), st.st_size)
+
+        # `no-cache` means "revalidate before use", NOT "do not store" — so the
+        # original requirement still holds: after an update the browser can never
+        # serve stale JS without asking us first. What it buys is the 304 below.
+        # The UI is ~35 ES modules; `no-store` re-sent every byte of every one of
+        # them on every page load, which is the whole reason a bundler looked
+        # necessary. With revalidation the repeat cost is an empty-bodied 304.
+        if self.headers.get("If-None-Match") == etag:
+            self.send_response(304)
+            self.send_header("ETag", etag)
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+
         with open(full, "rb") as fh:
             data = fh.read()
         self.send_response(200)
         self.send_header("Content-Type", _MIME.get(ext, "application/octet-stream"))
         self.send_header("Content-Length", str(len(data)))
-        # Never let the browser cache the UI assets — after an update the old JS
-        # must not linger (a stale cached file once showed a blank dashboard).
-        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
-        self.send_header("Pragma", "no-cache")
-        self.send_header("Expires", "0")
+        self.send_header("ETag", etag)
+        self.send_header("Cache-Control", "no-cache")
         self.end_headers()
         self.wfile.write(data)
 
@@ -229,6 +270,21 @@ class _Handler(BaseHTTPRequestHandler):
         logger.debug("HTTP %s", fmt % args)
 
 
+class _Server(ThreadingHTTPServer):
+    """ThreadingHTTPServer that can actually be closed.
+
+    ThreadingMixIn.block_on_close defaults to True *even here* — setting
+    daemon_threads does not clear it — so server_close() joins every live
+    handler thread. Once /api/events holds a stream open indefinitely that
+    turns a restart into a hang. allow_reuse_address avoids TIME_WAIT
+    blocking the rebind on a fast restart.
+    """
+
+    daemon_threads = True
+    block_on_close = False
+    allow_reuse_address = True
+
+
 class ApiServer:
     def __init__(self, host, port, controller, stats=None):
         self.host = host
@@ -239,7 +295,7 @@ class ApiServer:
         self._thread = None
 
     def start(self):
-        self._server = ThreadingHTTPServer((self.host, self.port), _Handler)
+        self._server = _Server((self.host, self.port), _Handler)
         self._thread = threading.Thread(target=self._server.serve_forever,
                                         name="api", daemon=True)
         self._thread.start()
@@ -247,5 +303,7 @@ class ApiServer:
 
     def stop(self):
         if self._server:
-            self._server.shutdown()
+            self._server.shutdown()        # stop accepting / break serve_forever
+            self._server.server_close()    # release the listening socket
+            self._server = None
             logger.info("API server stopped")

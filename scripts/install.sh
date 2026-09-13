@@ -30,16 +30,29 @@ HERE="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "[*] System packages (python, iproute2, linuxptp, qmi tools, ssh helpers)..."
 apt-get update -qq
+# Every Python runtime dep is packaged by Debian. Do NOT use pip here: Ubuntu
+# 24.04 marks the system interpreter externally-managed (PEP 668), so
+# `pip3 install` aborts, and the daemon runs as root against the system
+# interpreter anyway.
 apt-get install -y --no-install-recommends \
-    python3 python3-pip python3-yaml \
-    iproute2 bridge-utils linuxptp libqmi-utils curl
+    python3 python3-yaml python3-serial python3-paramiko \
+    iproute2 bridge-utils linuxptp libqmi-utils iperf3 curl
 
-echo "[*] Python dependencies..."
-pip3 install --no-cache-dir -r "$HERE/requirements.txt"
+echo "[*] Verifying Python dependencies are importable ..."
+python3 - <<'PYCHECK'
+import importlib, sys
+missing = [m for m in ("yaml", "serial", "paramiko") if not importlib.util.find_spec(m)]
+if missing:
+    sys.exit("ERROR: missing Python modules: " + ", ".join(missing))
+print("    yaml, serial, paramiko OK")
+PYCHECK
 
 echo "[*] Copying application to $APP_DIR ..."
 mkdir -p "$APP_DIR"
-cp -r "$HERE/tsn5g_ue" "$HERE/web" "$HERE/desktop" "$APP_DIR/"
+cp -r "$HERE/tsn5g_ue" "$HERE/web" "$APP_DIR/"
+if [[ -d "$HERE/desktop" ]]; then
+    cp -r "$HERE/desktop" "$APP_DIR/"
+fi
 
 echo "[*] Installing config to $CFG_DIR ..."
 mkdir -p "$CFG_DIR" "$STATE_DIR"
@@ -57,7 +70,10 @@ systemctl enable --now tsn5g-ue.service
 
 if [[ $INSTALL_KIOSK -eq 1 ]]; then
     install -m0644 "$HERE/systemd/tsn5g-ue-kiosk.service" /etc/systemd/system/
-    chmod +x "$APP_DIR/desktop/kiosk.sh"
+    if [[ ! -x "$APP_DIR/desktop/kiosk.sh" ]]; then
+        echo "ERROR: $APP_DIR/desktop/kiosk.sh missing; re-run without --no-kiosk sources" >&2
+        exit 1
+    fi
     systemctl daemon-reload
     systemctl enable tsn5g-ue-kiosk.service || true
     echo "    kiosk unit installed (starts on graphical.target; set User=/DISPLAY as needed)"
