@@ -272,15 +272,28 @@ class ModemManager:
         self.signal["ts"] = time.time()
         return self.signal
 
-    def branches(self):
-        """Per-antenna RSRP/RSRQ/SINR. All branches at -140 means no RF."""
+    def branches(self, wait=False):
+        """Per-antenna RSRP/RSRQ/SINR. All branches at -140 means no RF.
+
+        `wait` decides what happens when the bus is busy. The background poller
+        passes False and skips, so it cannot queue behind a four-minute scan.
+        A user pressing "Sample now" passes True and waits, because returning
+        nothing to someone who asked a direct question is worse than being slow.
+        """
         if self.bus is None:
             return {}
         out = {}
         for cmd, key, fn in (("AT+QRSRP", "rsrp", parse.qrsrp),
                              ("AT+QRSRQ", "rsrq", parse.qrsrq),
                              ("AT+QSINR", "sinr", parse.qsinr)):
-            lines = self.bus.try_command(cmd, timeout=5, reason="branches")
+            if wait:
+                try:
+                    lines = self.bus.command(cmd, timeout=6, priority=_P_HIGH,
+                                             reason="branches")
+                except _AtError:
+                    lines = None
+            else:
+                lines = self.bus.try_command(cmd, timeout=5, reason="branches")
             out[key] = fn(lines) if lines is not None else None
         return out
 

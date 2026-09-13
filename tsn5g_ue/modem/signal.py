@@ -130,7 +130,7 @@ class SignalPoller:
         # else — the serving-cell RSRP is the best branch, which hides it.
         if force or self._ticks % BRANCH_EVERY == 0:
             try:
-                sample["branches"] = self.modem.branches()
+                sample["branches"] = self.modem.branches(wait=force)
             except Exception:           # noqa: BLE001
                 sample["branches"] = None
 
