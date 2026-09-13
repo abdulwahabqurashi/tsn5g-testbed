@@ -4,10 +4,19 @@ Contract check: does the running daemon serve everything the UI calls?
 
     ./scripts/check-endpoints.py [base-url]        # default http://127.0.0.1:8080
 
-Extracts every "/api/..." literal from web/js/ and probes each against a live
-box. 404 and 405 are failures; 400/409/428/500 all prove the route exists and
-is validating its input. Also verifies /api/events really streams, and reports
-routes the server advertises that the UI never calls.
+Extracts every "/api/..." literal from web/js/ and checks each against a live
+box. Also verifies /api/events really streams, and reports routes the server
+advertises that the UI never calls.
+
+READ-ONLY BY DEFAULT. Mutating routes are verified against GET /api/spec
+rather than being called, because calling them does real things: an earlier
+version POSTed {} to every route to prove it existed, which ran bearer.connect
+and net.transport_start on a live rig, re-attached the modem, changed the UE
+address and built seven overlay interfaces. Proving a route exists is not worth
+reconfiguring the hardware.
+
+Pass --probe-writes to actually call them. Only do that on a bench unit with no
+bearer up and nothing depending on the link.
 
 This is the one command that catches drift between the backend and the UI while
 they are being changed in parallel. Standard library only — it runs anywhere the
@@ -67,6 +76,32 @@ def verb(path):
         "result", "state", "interfaces", "spec", "version") else "POST"
 
 
+def spec_routes(base):
+    """The route table the server advertises: (method, path) pairs."""
+    try:
+        with urllib.request.urlopen(base.rstrip("/") + "/api/spec", timeout=5) as r:
+            spec = json.load(r)
+        return {(x["method"], x["path"]) for x in spec["routes"]}, spec
+    except Exception:              # noqa: BLE001
+        return set(), None
+
+
+def path_in_spec(served, method, path):
+    """Match a concrete path against the spec, allowing for {id} placeholders."""
+    if (method, path) in served:
+        return True
+    want = path.strip("/").split("/")
+    for m, pattern in served:
+        if m != method:
+            continue
+        have = pattern.strip("/").split("/")
+        if len(have) != len(want):
+            continue
+        if all(h.startswith("{") or h == w for h, w in zip(have, want)):
+            return True
+    return False
+
+
 def probe(base, method, path, timeout=20):
     url = base.rstrip("/") + path
     data = b"{}" if method != "GET" else None
@@ -103,7 +138,9 @@ def sse_ok(base, timeout=4.0):
 
 
 def main():
-    base = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8080"
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    probe_writes = "--probe-writes" in sys.argv
+    base = args[0] if args else "http://127.0.0.1:8080"
 
     status, _ = probe(base, "GET", "/api/status", timeout=5)
     if status != 200:
@@ -115,19 +152,35 @@ def main():
         print("WARNING: no /api/ literals found under web/js — has the UI moved?",
               file=sys.stderr)
 
+    served, _spec = spec_routes(base)
+    if not served and not probe_writes:
+        print("ERROR: /api/spec unavailable, so write routes cannot be checked "
+              "without calling them. Re-run with --probe-writes only if this box "
+              "is safe to reconfigure.", file=sys.stderr)
+        return 2
+
+    if probe_writes:
+        print("!! --probe-writes: mutating routes WILL be called for real.\n")
+
     print(f"{'endpoint':<32} {'verb':<5} result")
     print("-" * 72)
     failures = []
     for p in paths:
         v = verb(p)
-        code, msg = probe(base, v, p)
-        if code in (404, 405) or code == 0:
-            failures.append((v, p, code))
-            note = f"MISSING ({code})"
+        if v == "GET" or probe_writes:
+            code, msg = probe(base, v, p)
+            if code in (404, 405) or code == 0:
+                failures.append((v, p, code))
+                note = f"MISSING ({code})"
+            else:
+                note = f"ok ({code})"
+                if msg:
+                    note += f"  {msg[:32]}"
+        elif path_in_spec(served, v, p):
+            note = "ok (in spec, not called)"
         else:
-            note = f"ok ({code})"
-            if msg:
-                note += f"  {msg[:32]}"
+            failures.append((v, p, "not in spec"))
+            note = "MISSING (not in spec)"
         print(f"{p:<32} {v:<5} {note}")
 
     print("-" * 72)
