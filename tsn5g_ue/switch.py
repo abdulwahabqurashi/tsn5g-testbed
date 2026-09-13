@@ -275,6 +275,17 @@ class SwitchManager:
             "keys": ["ssh-rsa", "ssh-dss"],
             "ciphers": ["aes128-cbc", "aes256-cbc", "3des-cbc", "aes128-ctr", "aes256-ctr"],
         }
+        # paramiko raises "str, bytes or bytearray expected, not NoneType" deep
+        # inside auth when any of these is missing, which surfaced in the UI as
+        # that TypeError rather than as "no password".
+        missing = [n for n, v in (("host", host), ("user", user),
+                                  ("password", password)) if not v]
+        if missing:
+            raise SwitchError(
+                f"cannot reach the switch: no {', '.join(missing)}. "
+                "Host and user come from the config's switch section; the "
+                "password is entered per session and never stored.")
+
         transport = None
         try:
             transport = paramiko.Transport((host, 22))

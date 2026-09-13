@@ -30,6 +30,11 @@ logger = logging.getLogger("tsn5g-ue.modem.qmi")
 
 DEFAULT_STATE = "/run/tsn5g-ue/bearer.json"
 
+# ue_qmi_up.sh records the packet data handle here. The console adopts it when
+# it has no handle of its own, so a bearer either tool started can be stopped
+# by either tool.
+SCRIPT_STATE = "/run/ue_qmi_up.state"
+
 
 class QmiError(RuntimeError):
     pass
@@ -62,7 +67,32 @@ class QmiClient:
             with open(self.state_path, "r", encoding="utf-8") as fh:
                 return json.load(fh)
         except (OSError, ValueError):
+            return self._adopt_script_state()
+
+    def _adopt_script_state(self):
+        """Fall back to the handle ue_qmi_up.sh recorded.
+
+        The two tools share this rig, and a bearer the script brought up is a
+        perfectly real bearer — but without its handle the console could only
+        flush the interface, leaving the session alive inside the modem with
+        no way to stop it. The file is `PDH=...` / `CID=...` shell assignments.
+        """
+        try:
+            with open(SCRIPT_STATE, "r", encoding="utf-8") as fh:
+                raw = fh.read()
+        except OSError:
             return {}
+        out = {}
+        for line in raw.splitlines():
+            key, _, value = line.partition("=")
+            key, value = key.strip().lower(), value.strip()
+            if key in ("pdh", "cid") and value:
+                out[key] = value
+        if out:
+            out["adopted_from"] = SCRIPT_STATE
+            logger.info("adopted data handle %s (cid %s) from %s",
+                        out.get("pdh"), out.get("cid"), SCRIPT_STATE)
+        return out
 
     def save_state(self, data):
         try:
@@ -75,10 +105,11 @@ class QmiClient:
             logger.warning("could not persist bearer state: %s", exc)
 
     def clear_state(self):
-        try:
-            os.unlink(self.state_path)
-        except OSError:
-            pass
+        for path in (self.state_path, SCRIPT_STATE):
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
 
     # -- device -------------------------------------------------------------
     def operating_mode(self):

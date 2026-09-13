@@ -119,7 +119,7 @@ export default defineView({
     }
 
     // ---- preferences ------------------------------------------------------
-    function paintPrefs(p) {
+    function paintPrefs(p, cell) {
       clear(prefsBody);
       prefsBody.appendChild(row("SA only",
         badge(p.sa_only ? "yes" : "no", p.sa_only ? "green" : "amber")));
@@ -140,11 +140,20 @@ export default defineView({
           "The band mask is empty. Nothing will camp until it is repaired."));
       }
 
+      // The mask the modem reports, verbatim. When it is empty the fallback is
+      // the band the UE is camped on — not a constant, which on another site
+      // would repair towards a band that is not deployed there.
+      const servingBand = cell.band === null || cell.band === undefined
+        ? "" : String(cell.band).replace(/^n/i, "");
       const bandInput = h("input", { type: "text", class: "mini-input",
-                                     value: p.nr5g_band || "78",
-                                     placeholder: "78 or 1:3:78" });
+                                     value: p.nr5g_band || servingBand,
+                                     placeholder: "e.g. 78 or 1:3:78" });
       prefsBody.appendChild(field("NR band mask", bandInput,
                                   "colon-separated, e.g. 78 or 1:3:7:78"));
+      if (!p.nr5g_band && servingBand) {
+        prefsBody.appendChild(h("p", { class: "hint",
+          text: `Prefilled with n${servingBand}, the band the UE is camped on.` }));
+      }
       prefsBody.appendChild(btnRow(
         button("Set SA only", {
           kind: "primary",
@@ -169,8 +178,13 @@ export default defineView({
               confirmLabel: "Repair", danger: true,
             });
             if (!ok) return;
+            const band = bandInput.value.trim();
+            if (!band) {
+              toast("enter a band mask to repair towards", "err");
+              return;
+            }
             runJob(() => view.api.radio.repairBands(
-              { band: bandInput.value.trim() || "78", confirm: true },
+              { band, confirm: true },
               { signal: view.signal }), "repair bands");
           },
         })));
@@ -218,7 +232,15 @@ export default defineView({
       plmnBody.appendChild(h("div", { class: "kpi-label",
                                       style: { "margin-top": "14px" },
                                       text: "Forbidden PLMNs" }));
-      if (!list.length) {
+      // An empty list and a failed read are not the same claim. This firmware
+      // rejects AT+QFPLMNCFG="get", and reporting that as "None" asserted the
+      // list was clear when it had never been read.
+      if (forbidden?.error) {
+        plmnBody.appendChild(h("p", { class: "section-hint",
+          style: { color: "var(--amber)" } },
+          `Could not read the list: ${forbidden.error}. It may still contain `
+          + "entries — this is not a confirmation that it is empty."));
+      } else if (!list.length) {
         plmnBody.appendChild(h("p", { class: "hint" },
           "None. A PLMN lands here after repeated failures and then stays — "
           + "across reboots — refusing every future attempt."));
@@ -235,7 +257,7 @@ export default defineView({
     }
 
     // ---- cell lock --------------------------------------------------------
-    function paintLock(lock) {
+    function paintLock(lock, cell) {
       clear(lockBody);
       lockBody.appendChild(row("Locked",
         badge(lock.locked ? "yes" : "no", lock.locked ? "amber" : "gray")));
@@ -253,15 +275,31 @@ export default defineView({
         })));
         return;
       }
+      // Prefilled from the cell the UE is camped on right now, not from
+      // constants. Hard-coding this rig's 624000/n78/PCI 1 made the form look
+      // populated while ignoring the modem, so locking from a different site
+      // would have locked to the wrong cell.
+      const bandNow = cell.band === null || cell.band === undefined
+        ? "" : String(cell.band).replace(/^n/i, "");
       const inputs = {
-        arfcn: h("input", { type: "number", class: "mini-input", value: "624000" }),
-        band: h("input", { type: "number", class: "mini-input", value: "78" }),
-        pci: h("input", { type: "number", class: "mini-input", value: "1" }),
+        arfcn: h("input", { type: "number", class: "mini-input",
+                            value: cell.arfcn ?? "", placeholder: "from scan" }),
+        band: h("input", { type: "number", class: "mini-input",
+                           value: bandNow, placeholder: "e.g. 78" }),
+        pci: h("input", { type: "number", class: "mini-input",
+                          value: cell.pci ?? "", placeholder: "from scan" }),
         scs: h("input", { type: "number", class: "mini-input", value: "1" }),
       };
       lockBody.appendChild(h("div", { class: "kpis" },
         field("ARFCN", inputs.arfcn), field("Band", inputs.band),
         field("PCI", inputs.pci), field("SCS index", inputs.scs)));
+      const haveCell = cell.arfcn !== null && cell.arfcn !== undefined;
+      lockBody.appendChild(h("p", { class: "hint" },
+        haveCell
+          ? "Prefilled from the serving cell. Scan and use a row's Lock button "
+            + "to target a different one."
+          : "Not camped, so there is nothing to prefill. Run a scan and lock "
+            + "from a result row, or enter the values by hand."));
       lockBody.appendChild(h("p", { class: "hint" },
         "The argument order varies by firmware, so four known orders are "
         + "tried and whichever is accepted is kept."));
@@ -357,9 +395,9 @@ export default defineView({
           view.api.radio.lock({ signal: view.signal }),
         ]);
         paintState(state);
-        paintPrefs(prefs);
+        paintPrefs(prefs, state.cell || {});
         paintPlmn(state, forbidden);
-        paintLock(lock);
+        paintLock(lock, state.cell || {});
       } catch (err) {
         if (err instanceof ApiError && err.isAborted) return;
         clear(stateBody);

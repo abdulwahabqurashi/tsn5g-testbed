@@ -31,8 +31,11 @@ export default defineView({
     const previewBody = h("div");
     const statusBody = h("div");
 
-    // Session-only. Never persisted, never sent anywhere but the apply call.
-    const creds = { host: "192.168.1.1", user: "admin", password: "", ports: "1-8" };
+    // Host, user and ports come from the operator's config; only the password
+    // is session-only. These were hard-coded to 192.168.1.1/admin/1-8, which
+    // happened to match the config on this rig and would silently stop
+    // matching the moment anyone edited it.
+    const creds = { host: "", user: "", password: "", ports: "" };
     let profiles = [];
     let selected = null;
 
@@ -55,13 +58,20 @@ export default defineView({
     const inputs = {};
     function buildForm() {
       clear(formBody);
-      inputs.host = h("input", { type: "text", class: "mini-input", value: creds.host });
-      inputs.user = h("input", { type: "text", class: "mini-input", value: creds.user });
+      inputs.host = h("input", { type: "text", class: "mini-input",
+                                 value: creds.host, placeholder: "switch.host in config" });
+      inputs.user = h("input", { type: "text", class: "mini-input",
+                                 value: creds.user, placeholder: "switch.user in config" });
       // Deliberately type=text: this console is often driven from a
       // touchscreen with no keyboard, where a masked field is unusable.
       inputs.password = h("input", { type: "text", class: "mini-input",
                                      autocomplete: "off", placeholder: "not stored" });
       inputs.ports = h("input", { type: "text", class: "mini-input", value: creds.ports });
+      if (!creds.host) {
+        formBody.appendChild(h("p", { class: "hint" },
+          "No switch is configured. Set switch.host and switch.user in the "
+          + "config, or type them here for this session."));
+      }
 
       formBody.appendChild(h("div", { class: "kpis" },
         field("Host", inputs.host), field("User", inputs.user)));
@@ -206,9 +216,16 @@ export default defineView({
 
     // ---- boot ----------------------------------------------------------------
     try {
-      const res = await view.api.switch.profiles({ signal: view.signal });
+      const [res, config] = await Promise.all([
+        view.api.switch.profiles({ signal: view.signal }),
+        view.api.config.get({ signal: view.signal }),
+      ]);
       profiles = res.profiles || [];
       selected = profiles[0] || null;
+      const sw = config.switch || {};
+      creds.host = sw.host || "";
+      creds.user = sw.user || "";
+      creds.ports = sw.ports || "1-8";
     } catch (err) {
       if (!(err instanceof ApiError && err.isAborted)) toast(err.message, "err");
     }

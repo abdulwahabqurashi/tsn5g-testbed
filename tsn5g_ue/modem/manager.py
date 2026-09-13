@@ -155,7 +155,8 @@ class ModemManager:
         self.mode = None
         self.pci = None
         self.cellid = None
-        self.sim_ready = False
+        self.sim_ready = None          # None = never measured, not "no SIM"
+        self.checked_at = None
         self.operator = None
         self.model = None
         self.band = None
@@ -226,6 +227,7 @@ class ModemManager:
         # SIM
         cpin = self._at("AT+CPIN?")
         self.sim_ready = any("READY" in l for l in cpin)
+        self.checked_at = time.time()
         # Operator
         cops = self._at("AT+COPS?")
         m = re.search(r'\+COPS:\s*\d+,\d+,"([^"]+)"', " ".join(cops))
@@ -407,14 +409,68 @@ class ModemManager:
 
     # ----------------------------------------------------------------- status
     def get_status(self):
+        """Live state, not the flags check() happened to leave behind.
+
+        `registered`, `pdu_active` and `ipv4` were only ever written by
+        check() and connect(), which nothing calls on a timer — so a UE that
+        was camped and carrying traffic reported registered=false, ipv4=null
+        and pdu_active=false indefinitely, and the Modem view showed that as
+        fact. Each is now derived from something that is actually current, and
+        anything genuinely unknown is null rather than a confident False.
+        """
+        bus = {}
+        try:
+            bus = self.bus.status() or {}
+        except Exception:               # noqa: BLE001 — status must not fail
+            pass
+
+        bearer = {}
+        if self.bearer is not None:
+            try:
+                bearer = self.bearer.status() or {}
+            except Exception:           # noqa: BLE001
+                pass
+
+        ipv4 = bearer.get("ipv4") or self.ipv4
+        pdu_active = (bearer.get("state") == "up") if bearer else self.pdu_active
+
+        # Two independent proofs of registration, because this object's own
+        # attributes are only written when something calls refresh_signal() on
+        # it — the signal poller is a separate component, so self.rat and
+        # self.cellid can be unset while the radio is plainly camped.
+        #
+        #   A live PDU session cannot exist without registration.
+        #   A fresh serving-cell reading means the UE is camped.
+        #
+        # Neither proof available is reported as unknown, never as "not
+        # registered" — the distinction the Modem view now renders.
+        sig = self.signal or {}
+        camped = bool(self.rat and self.cellid and not sig.get("stale"))
+        if pdu_active:
+            registered, source = True, "active PDU session"
+        elif camped:
+            registered, source = True, "serving cell"
+        elif self.registered:
+            registered, source = True, "last check"
+        else:
+            registered = self.registered if self.checked_at else None
+            source = "last check" if self.checked_at else "never measured"
+
         return {
-            "device": self.device, "wwan_interface": self.wwan, "cid": self.cid,
-            "model": self.model, "qmi_device": self.qmi_device,
+            "device": self.device or bus.get("port"),
+            "wwan_interface": self.wwan, "cid": self.cid,
+            "model": self.model or bus.get("model"),
+            "qmi_device": self.qmi_device,
             "rat": self.rat, "arfcn": self.arfcn,
-            "mode": self.mode, "sim_ready": self.sim_ready, "registered": self.registered,
-            "pdu_active": self.pdu_active, "operator": self.operator, "band": self.band,
-            "mac_address": self.mac_address, "ipv4": self.ipv4, "signal": self.signal,
+            "mode": self.mode,
+            "sim_ready": self.sim_ready,
+            "sim_checked_at": self.checked_at,
+            "registered": registered,
+            "registered_from": source,
+            "pdu_active": pdu_active, "operator": self.operator, "band": self.band,
+            "mac_address": self.mac_address, "ipv4": ipv4, "signal": self.signal,
         }
 
     def check_health(self):
-        return self.registered and self.pdu_active
+        st = self.get_status()
+        return bool(st.get("registered")) and bool(st.get("pdu_active"))

@@ -254,6 +254,25 @@ export default defineView({
       for (const [t, routes] of Object.entries(live.tables || {})) {
         pre(`table ${t}`, routes);
       }
+
+      // A rule pointing at an empty table is the failure that looks like
+      // success: `ip rule` and the mangle marks are all present, so the setup
+      // reads as applied, but the lookup finds nothing and the packet falls
+      // through to main and leaves over ethernet. Nothing errors.
+      const referenced = (live.ip_rule || [])
+        .map((r) => /lookup\s+(\S+)/.exec(r)?.[1])
+        .filter((t) => t && !["local", "main", "default"].includes(t));
+      const hollow = referenced.filter(
+        (t) => !((live.tables || {})[t] || []).length);
+      if (hollow.length) {
+        liveBody.appendChild(h("p", { class: "section-hint",
+          style: { color: "var(--amber)", "font-weight": "600" } },
+          `Rules send marked traffic to table ${hollow.join(", ")}, which is `
+          + "empty. The lookup finds no route, so the packet falls through to "
+          + "the main table and leaves over ethernet — silently, with the "
+          + "marks and rules all still looking correct. Apply a profile to "
+          + "populate it."));
+      }
     }
 
     // ---- data ---------------------------------------------------------------

@@ -45,6 +45,24 @@ DEFAULT_UDP_RATE = {"up": "25M", "down": "70M"}
 DEFAULT_LENGTH = 1200        # below wwan0's 1400 MTU, so no fragmentation
 
 
+
+def _run_started(run_id, path):
+    """When the run began, from its id rather than the directory's mtime.
+
+    Run ids are `YYYYmmdd-HHMMSS` — the start time, exactly, and immutable.
+    Directory mtime moves every time a leg is written, so a run that was still
+    being appended to sorted above genuinely newer runs. Falls back to mtime
+    for any directory whose name is not an id.
+    """
+    try:
+        return time.mktime(time.strptime(run_id[:15], "%Y%m%d-%H%M%S"))
+    except (ValueError, TypeError):
+        try:
+            return os.path.getmtime(path)
+        except OSError:
+            return 0
+
+
 class IperfError(RuntimeError):
     pass
 
@@ -422,7 +440,8 @@ class IperfRunner:
                 if not os.path.exists(csv_path):
                     continue
                 seen[name] = {"id": name, "outdir": path, "state": "archived",
-                              "source": "disk", "started": os.path.getmtime(path)}
+                              "source": "disk",
+                              "started": _run_started(name, path)}
         except OSError:
             pass
         out = sorted(seen.values(), key=lambda r: r.get("started") or 0,

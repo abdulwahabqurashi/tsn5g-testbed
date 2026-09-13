@@ -527,6 +527,130 @@ def main():
         check("GET /api/config reports where each section came from",
               srcmap and srcmap != "null", f"_source = {srcmap}")
 
+        # ---- nothing asserts what it has not measured ----------------------
+        # Each of these rendered a confident value that came from a constant or
+        # an untouched default rather than from the hardware.
+        print("=== no invented values ===")
+
+        m.script("window.location.hash = '#/registration';")
+        m.wait_for("window.__tsn.store.get().ui.route === 'registration'",
+                   timeout=15, label="registration route")
+        m.wait_for("document.getElementById('content').textContent.length > 300",
+                   timeout=25, label="registration content")
+        # The lock form was hard-coded to this rig: 624000 / 78 / PCI 1.
+        cell = m.script("""
+            return fetch('/api/radio').then(r => r.json())
+                   .then(s => JSON.stringify(s.cell || {}));
+        """)
+        cell = json.loads(cell)
+        vals = m.script("""
+            return [...document.querySelectorAll('#content input[type=number]')]
+                   .map(i => i.value);
+        """)
+        check("cell-lock form prefills from the serving cell, not constants",
+              cell.get("arfcn") is None or str(cell["arfcn"]) in vals,
+              f"serving arfcn {cell.get('arfcn')}, form had {vals}")
+
+        text = m.script("return document.getElementById('content').textContent;")
+        fb = m.script("""
+            return fetch('/api/radio/plmn/forbidden').then(r => r.json())
+                   .then(d => JSON.stringify(d));
+        """)
+        fb = json.loads(fb)
+        if fb.get("error"):
+            check("an unreadable forbidden-PLMN list is not reported as empty",
+                  "Could not read the list" in text,
+                  "the firmware rejects AT+QFPLMNCFG and the UI claimed 'None'")
+        else:
+            check("forbidden-PLMN list read cleanly", True)
+
+        print("=== modem reports measurements, not defaults ===")
+        m.script("window.location.hash = '#/modem';")
+        m.wait_for("window.__tsn.store.get().ui.route === 'modem'", timeout=15,
+                   label="modem route")
+        m.wait_for("document.getElementById('content').textContent.length > 200",
+                   timeout=20, label="modem content")
+        api_m = json.loads(m.script("""
+            return fetch('/api/modem').then(r => r.json())
+                   .then(d => JSON.stringify(d.modem || {}));
+        """))
+        bearer = json.loads(m.script("""
+            return fetch('/api/bearer').then(r => r.json()).then(d => JSON.stringify(d));
+        """))
+        if bearer.get("state") == "up":
+            check("a live bearer is not reported as pdu_active=false",
+                  api_m.get("pdu_active") is True,
+                  f"bearer up at {bearer.get('ipv4')} but pdu_active="
+                  f"{api_m.get('pdu_active')}")
+            check("the UE address reaches the modem view",
+                  api_m.get("ipv4") == bearer.get("ipv4"),
+                  f"{api_m.get('ipv4')} vs {bearer.get('ipv4')}")
+        sig = json.loads(m.script("""
+            return fetch('/api/signal').then(r => r.json()).then(d => JSON.stringify(d));
+        """))
+        if sig.get("rsrp") is not None and not sig.get("stale"):
+            check("a camped UE is not reported as unregistered",
+                  api_m.get("registered") is True,
+                  f"serving cell reads RSRP {sig.get('rsrp')} but registered="
+                  f"{api_m.get('registered')}")
+        # Unmeasured must read as unknown, never as a confident "no".
+        text = m.script("return document.getElementById('content').textContent;")
+        if api_m.get("sim_ready") is None:
+            check("an unmeasured SIM shows as unknown, not 'not ready'",
+                  "unknown" in text and "not ready" not in text,
+                  "sim_ready is null until a Check runs")
+
+        print("=== bearer state is complete enough to tear down ===")
+        if bearer.get("state") == "up":
+            check("MTU comes from the kernel even with no QMI settings",
+                  bearer.get("mtu") is not None, f"mtu={bearer.get('mtu')}")
+            check("carrier is reported, not left as operstate 'unknown'",
+                  bearer.get("carrier") in ("up", "down"),
+                  f"carrier={bearer.get('carrier')}")
+            check("a data handle is known, so the call can be stopped cleanly",
+                  bearer.get("pdh") is not None,
+                  "without it the interface is only flushed and the session "
+                  "stays alive in the modem")
+
+        print("=== gPTP can actually be started ===")
+        m.script("window.location.hash = '#/gptp';")
+        m.wait_for("window.__tsn.store.get().ui.route === 'gptp'", timeout=15,
+                   label="gptp route")
+        m.wait_for("document.getElementById('content').textContent.length > 150",
+                   timeout=20, label="gptp content")
+        gp = json.loads(m.script("""
+            return fetch('/api/status').then(r => r.json())
+                   .then(d => JSON.stringify(d.gptp || {}));
+        """))
+        disabled = m.script("""
+            const b = [...document.querySelectorAll('.btn')]
+                      .find(x => x.textContent.trim() === 'Start');
+            return b ? b.disabled : null;
+        """)
+        check("gPTP offers the interfaces that support timestamping",
+              len(gp.get("interfaces") or []) > 0,
+              "config tsn_nics is empty; the hardware must be probed")
+        check("Start is enabled when an interface is available",
+              disabled is False or bool(gp.get("running")),
+              f"Start disabled={disabled} with interfaces {gp.get('interfaces')}")
+
+        print("=== switch reads its identity from config ===")
+        m.script("window.location.hash = '#/switch';")
+        m.wait_for("window.__tsn.store.get().ui.route === 'switch'", timeout=15,
+                   label="switch route")
+        m.wait_for("document.querySelectorAll('#content input').length >= 4",
+                   timeout=20, label="switch form")
+        cfg_sw = json.loads(m.script("""
+            return fetch('/api/config').then(r => r.json())
+                   .then(c => JSON.stringify(c.switch || {}));
+        """))
+        host_val = m.script("""
+            return document.querySelector('#content input[type=text]').value;
+        """)
+        check("switch host comes from config, not a literal in the view",
+              host_val == (cfg_sw.get("host") or ""),
+              f"form {host_val!r} vs config {cfg_sw.get('host')!r}")
+
         # ---- console errors ----------------------------------------------------
         print("=== console ===")
         errs = m.script("return (window.__tsn_errors || []).length;") or 0

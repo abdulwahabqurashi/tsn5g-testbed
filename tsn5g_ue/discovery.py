@@ -151,7 +151,19 @@ class Discovery:
         except (OSError, ValueError):
             return None
 
-    @staticmethod
-    def _supports_hw_timestamp(name):
-        # TODO: query via ethtool -T; assume True for physical NICs for now.
-        return True
+    # ethtool prints one capability per line under "Capabilities:". Hardware
+    # transmit/receive are the two ptp4l needs; software timestamping is not
+    # accurate enough for 802.1AS, so treating every physical NIC as capable
+    # (which this did) offered ptp4l interfaces that would fail at start.
+    _HW_TS_CAPS = ("hardware-transmit", "hardware-receive")
+
+    @classmethod
+    def _supports_hw_timestamp(cls, name):
+        if not is_linux() or not utils.have("ethtool"):
+            return None            # unknown, which is not the same as False
+        try:
+            out = utils.run(["ethtool", "-T", name], check=False, timeout=10).stdout
+        except Exception:          # noqa: BLE001 — discovery must not fail
+            return None
+        caps = out.lower()
+        return all(c in caps for c in cls._HW_TS_CAPS)

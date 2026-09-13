@@ -78,7 +78,9 @@ class Controller:
         self.bearer.on_change = self._on_bearer_change
         self.identity = None
         self.transport = None
-        self.gptp = GptpManager(config.gptp, config.hw_timestamp_interfaces())
+        # Config first; if the operator has not listed any NICs, ask the
+        # hardware. Offering nothing here is what made gPTP unstartable.
+        self.gptp = GptpManager(config.gptp, self._hw_ts_interfaces())
         self.switch = SwitchManager(config.switch)
         self.tas = TasManager(config.as_dict().get("tas", {}))
         self.speedtest = SpeedTest(config.as_dict().get("speedtest", {}))
@@ -86,6 +88,18 @@ class Controller:
             {"wwan_interface": config.modem.get("wwan_interface", "wwan0")},
             platform=self.platform)
         self._lock = threading.RLock()
+
+    def _hw_ts_interfaces(self):
+        """Interfaces ptp4l can use: config if given, otherwise probed."""
+        listed = self.config.hw_timestamp_interfaces()
+        if listed:
+            return listed
+        try:
+            return [n["interface"] for n in self.discovery.find_tsn_nics()
+                    if n.get("hw_timestamping")]
+        except Exception:            # noqa: BLE001 — never block startup
+            logger.warning("could not probe for hardware timestamping", exc_info=True)
+            return []
 
     # ------------------------------------------------------------- lifecycle
     def start(self):

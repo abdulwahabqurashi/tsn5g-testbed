@@ -96,7 +96,13 @@ class Config:
         return [n["interface"] for n in self.tsn_nics if n.get("interface")]
 
     def hw_timestamp_interfaces(self):
-        """Wired NICs flagged for hardware timestamping (for gPTP)."""
+        """Wired NICs flagged for hardware timestamping (for gPTP).
+
+        Config is an override, not the only source. `tsn_nics` ships empty, so
+        reading it alone left the gPTP view with nothing to offer and Start
+        permanently disabled on a box whose NICs all support timestamping.
+        The caller falls back to probing when this is empty.
+        """
         return [n["interface"] for n in self.tsn_nics
                 if n.get("interface") and n.get("hw_timestamping")]
 

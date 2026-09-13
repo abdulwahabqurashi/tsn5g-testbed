@@ -77,9 +77,13 @@ class BearerManager:
         # _settings is in-memory, so a daemon restart loses it and a healthy
         # bearer reports no gateway or MTU. Re-read from QMI when the link is
         # up but we have nothing recorded.
-        if addr and not self._settings and state.get("pdh"):
+        # Gated on a recorded pdh before, which meant a session the daemon did
+        # not start (ue_qmi_up.sh, or a bearer that outlived a reinstall) never
+        # reported a gateway, MTU or DNS at all. The link being up is the right
+        # condition; QMI can answer without our saved handle.
+        if addr and not self._settings:
             try:
-                self._settings = self.qmi.current_settings()
+                self._settings = self.qmi.current_settings() or {}
             except Exception:               # noqa: BLE001 — status must not fail
                 pass
         return {
@@ -90,11 +94,18 @@ class BearerManager:
             "pdh": state.get("pdh"),
             "cid": state.get("cid"),
             "gateway": self._settings.get("gateway"),
-            "mtu": self._settings.get("mtu"),
+            # The kernel is authoritative for what is actually configured on
+            # the link; QMI only says what was negotiated. Reporting null while
+            # `ip link` said 1400 made the UI show a dash for a live value.
+            "mtu": self._link_mtu() or self._settings.get("mtu"),
             "dns": [d for d in (self._settings.get("dns1"),
                                 self._settings.get("dns2")) if d],
             "routes": self._routes(),
-            "carrier": self._operstate(),
+            # Raw-IP wwan interfaces report operstate "unknown" even when the
+            # link is carrying traffic, so operstate alone was never a useful
+            # answer here. carrier is the flag that actually moves.
+            "carrier": self._carrier(),
+            "operstate": self._operstate(),
         }
 
     def _current_address(self):
@@ -105,6 +116,19 @@ class BearerManager:
 
     def _operstate(self):
         return utils.read_sysfs(f"/sys/class/net/{self.iface}/operstate", "unknown")
+
+    def _carrier(self):
+        raw = utils.read_sysfs(f"/sys/class/net/{self.iface}/carrier", None)
+        if raw is None or raw == "":
+            return "unknown"
+        return "up" if raw.strip() == "1" else "down"
+
+    def _link_mtu(self):
+        raw = utils.read_sysfs(f"/sys/class/net/{self.iface}/mtu", None)
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
 
     def _routes(self):
         proc = utils.run(["ip", "route", "show", "dev", self.iface],

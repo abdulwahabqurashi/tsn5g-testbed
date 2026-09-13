@@ -77,8 +77,21 @@ export default defineView({
       stateBody.appendChild(row("Gateway", b.gateway, { mono: true }));
       stateBody.appendChild(row("MTU", b.mtu));
       stateBody.appendChild(row("APN", b.apn, { mono: true }));
+      stateBody.appendChild(row("DNS", (b.dns || []).join(", ") || null,
+                                { mono: true }));
+      stateBody.appendChild(row("Carrier", b.carrier
+        ? badge(b.carrier, b.carrier === "up" ? "green" : "gray") : null));
       stateBody.appendChild(row("QMI handle",
         b.pdh ? `${b.pdh} / cid ${b.cid ?? "—"}` : null, { mono: true }));
+      // Without a handle the call can only be abandoned, not stopped: the
+      // interface gets flushed while the session stays alive in the modem.
+      if (up && !b.pdh) {
+        stateBody.appendChild(h("p", { class: "section-hint",
+          style: { color: "var(--amber)" } },
+          "No QMI handle is recorded for this call, so it cannot be stopped "
+          + "cleanly — only abandoned. Restart the call to take ownership of "
+          + "it."));
+      }
       if (b.routes?.length) {
         stateBody.appendChild(h("div", { class: "kpi-label",
           style: { "margin-top": "10px" }, text: "Routes" }));
