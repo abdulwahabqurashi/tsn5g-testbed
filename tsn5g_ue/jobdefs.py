@@ -18,7 +18,8 @@ import logging
 import threading
 
 from . import constants as C
-from .core.jobs import LANE_BEARER, LANE_MODEM, LANE_NET, JobCancelled
+from .core.jobs import (LANE_BEARER, LANE_MODEM, LANE_NET, LANE_PERF,
+                        JobCancelled)
 
 logger = logging.getLogger("tsn5g-ue.jobs")
 
@@ -335,6 +336,25 @@ def register_all(jobs, controller):
                   confirm=True,
                   explain="Rewrites the band mask, briefly powering the radio "
                           "down. Used when the mask is stuck at zero.")
+
+    # -- throughput ---------------------------------------------------------
+    def iperf_run(ctx):
+        return controller.iperf.run({**ctx.params, "job_id": ctx.job_id}, ctx=ctx)
+
+    def iperf_loop(ctx):
+        return controller.iperf.loop({**ctx.params, "mode": "loop",
+                                      "job_id": ctx.job_id}, ctx)
+
+    def perf_load(ctx):
+        return controller.load.run_load(ctx.params, ctx)
+
+    def perf_flow(ctx):
+        return controller.load.run_flow(ctx.params, ctx)
+
+    jobs.register("iperf.run", iperf_run, LANE_PERF)
+    jobs.register("iperf.loop", iperf_loop, LANE_PERF)
+    jobs.register("perf.load", perf_load, LANE_PERF)
+    jobs.register("perf.flow", perf_flow, LANE_PERF)
 
     logger.debug("registered %d job kinds", len(jobs.kinds()))
     return jobs

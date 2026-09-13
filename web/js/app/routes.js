@@ -83,7 +83,7 @@ export const ROUTES = [
     title: "Throughput",
     icon: "speed",
     section: "testing",
-    load: () => legacyView("speedtest"),
+    load: () => import("../views/throughput.js"),
   },
   {
     name: "logs",

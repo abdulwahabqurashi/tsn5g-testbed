@@ -192,10 +192,24 @@ class Daemon:
             logger.info("cancelled %d running job(s)", cancelled)
         if self.api_server:
             self.api_server.stop()
+
+        # Deliberately NOT disconnecting.
+        #
+        # This used to call controller.disconnect(), so every `systemctl
+        # restart` dropped the 5G data call and every overlay interface with
+        # it. Restarts happen for upgrades, crashes and config changes — none
+        # of which are reasons to take a production bearer down, and the
+        # operator has no way to know that is what happened.
+        #
+        # The bearer lives in the modem and the kernel, not in this process.
+        # It survives us, which is also why the QMI packet-data handle is
+        # persisted to /run: a new instance can stop a call this one started.
+        # Tearing down is an explicit action (POST /api/bearer/down), never a
+        # side effect of restarting.
         try:
-            self.controller.disconnect()
+            self.controller.gptp.stop()
         except Exception as exc:            # noqa: BLE001
-            logger.error("error during disconnect: %s", exc)
+            logger.debug("gptp stop: %s", exc)
         self.controller.bus.stop()
         self.store.stop()
         logger.info("stopped")

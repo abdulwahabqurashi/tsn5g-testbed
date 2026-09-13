@@ -41,6 +41,9 @@ gptp:
 tas:
   default_profile: urllc-5qi82
 speedtest:
+  # Where iperf runs are written. The existing runs from iperf5g.sh are
+  # here, so history stays continuous.
+  log_dir: /home/amrc/camera_application/iperf_logs
   server: 10.45.0.1
   duration: 5
 switch:

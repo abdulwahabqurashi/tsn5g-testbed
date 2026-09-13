@@ -27,6 +27,8 @@ from .modem.radio import RadioControl
 from .modem.signal import SignalPoller
 from .net.bearer import BearerManager
 from .net.routing import RoutingManager
+from .perf.dummy import LoadGenerator
+from .perf.iperf import IperfRunner
 from .net.iface import NetIfaceManager
 from .platform import get_platform
 from .speedtest import SpeedTest
@@ -68,6 +70,9 @@ class Controller:
         # would re-apply the /30 form over the bearer's /32.
         self.modem.bearer = self.bearer
         self.routing = RoutingManager()
+        self.iperf = IperfRunner(config, store=store, events=events,
+                                 signal_poller=self.signal_poller)
+        self.load = LoadGenerator(config, events=events)
         # The UE address changes on every data call, so policy routing has to
         # be put back afterwards or it silently stops matching.
         self.bearer.on_change = self._on_bearer_change

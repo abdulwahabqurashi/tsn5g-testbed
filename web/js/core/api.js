@@ -262,6 +262,21 @@ export function createApi({ base = "", timeout = 8000, fetchImpl, onCall } = {})
     },
 
     // -- performance -----------------------------------------------------
+    iperf: {
+      defaults: (o) => GET("/api/iperf/defaults", o),
+      run: (body, o) => POST("/api/iperf/run", body, o),
+      loop: (body, o) => POST("/api/iperf/loop", body, o),
+      runs: (query, o) => GET("/api/iperf/runs", { ...o, query }),
+      run_: (id, o) => GET(`/api/iperf/runs/${encodeURIComponent(id)}`, o),
+      csv: (id, o) => GET(`/api/iperf/runs/${encodeURIComponent(id)}/summary.csv`, o),
+    },
+
+    perf: {
+      dummy: (o) => GET("/api/perf/dummy", o),
+      startDummy: (body, o) => POST("/api/perf/dummy", body, o),
+      stopDummy: (o) => request("DELETE", "/api/perf/dummy", { ...o, body: {} }),
+    },
+
     speedtest: {
       run: (body, o) => POST("/api/speedtest/run", body, o),
       result: (o) => GET("/api/speedtest/result", o),

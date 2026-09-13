@@ -386,6 +386,24 @@ def main():
         check("survey controls present",
               "Scan cells" in text and "Diagnose RF" in text)
 
+        # ---- Phase 6: throughput ------------------------------------------
+        print("=== throughput view ===")
+        m.script("window.location.hash = '#/throughput';")
+        m.wait_for("window.__tsn.store.get().ui.route === 'throughput'",
+                   timeout=15, label="throughput route")
+        m.wait_for("document.getElementById('content').textContent.length > 300",
+                   timeout=25, label="throughput content")
+        text = m.script("return document.getElementById('content').textContent;")
+        check("throughput view mounted", m.script(CARD_COUNT) >= 3,
+              f"{m.script(CARD_COUNT)} cards")
+        # The bind address is what decides whether a number means anything.
+        check("bind address is shown",
+              "bound to" in text or "no address" in text)
+        check("both directions offered", "up (UE" in text and "down (core" in text)
+        check("continuous loop offered", "Continuous loop" in text)
+        check("both generators offered",
+              "Link load" in text or "Camera-like" in text)
+
         # ---- console errors ----------------------------------------------------
         print("=== console ===")
         errs = m.script("return (window.__tsn_errors || []).length;") or 0
