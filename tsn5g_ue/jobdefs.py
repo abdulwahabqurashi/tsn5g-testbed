@@ -18,7 +18,7 @@ import logging
 import threading
 
 from . import constants as C
-from .core.jobs import (LANE_BEARER, LANE_MODEM, LANE_NET, JobCancelled)
+from .core.jobs import LANE_BEARER, LANE_MODEM, LANE_NET, JobCancelled
 
 logger = logging.getLogger("tsn5g-ue.jobs")
 
@@ -149,6 +149,79 @@ def register_all(jobs, controller):
         return result
 
     jobs.register("net.wifi_connect", wifi_connect, LANE_NET)
+
+    # -- modem hardware -----------------------------------------------------
+    def modem_rescan(ctx):
+        ctx.plan(["probe"])
+        ctx.step("probe", "looking for the AT and QMI devices")
+        ports = controller.bus.rescan()
+        ctx.log(f"at={ports['at']} qmi={ports['qmi']} model={ports['model']}")
+        if not ports["at"]:
+            ctx.log("no AT port answered. Is ModemManager masked?")
+        return ports
+
+    def modem_power(ctx):
+        mode = ctx.params.get("radio")
+        ctx.plan(["set", "verify"])
+        ctx.step("set", f"radio {mode}")
+        state = controller.power.set_radio(mode, ctx=ctx)
+        ctx.step("verify", "reading CFUN back")
+        ctx.log(f"CFUN={state.get('cfun')} radio={state.get('radio')}")
+        return state
+
+    def modem_reset(ctx):
+        ctx.plan(["reset", "re-enumerate"])
+        ctx.step("reset", "AT+CFUN=1,1")
+        result = controller.power.reset(ctx=ctx)
+        ctx.step("re-enumerate", f"back at {result.get('port')}")
+        return result
+
+    def modem_manager(ctx):
+        action = ctx.params.get("action")
+        ctx.plan([action])
+        ctx.step(action, f"systemctl {action} ModemManager")
+        from .modem import power as power_mod
+        state = power_mod.set_modemmanager(action, ctx=ctx)
+        ctx.log(f"ModemManager is now {state.get('state')}")
+        return state
+
+    def modem_at(ctx):
+        """A confirmed WARN-list AT command. Long enough to need progress."""
+        from .modem.bus import AtError, P_HIGH
+        cmd = ctx.params.get("cmd")
+        timeout = ctx.params.get("timeout", 30)
+        ctx.plan(["send"])
+        ctx.step("send", cmd)
+        try:
+            lines = controller.bus.command(cmd, timeout=timeout,
+                                           priority=P_HIGH, reason="console")
+        except AtError as exc:
+            # A command that re-enumerates USB never gets to answer. Say so
+            # rather than reporting a failure the operator did not cause.
+            if exc.kind in ("io", "timeout") and "CFUN=1,1" in cmd.upper():
+                ctx.log("port dropped, as expected for a reset")
+                controller.bus.invalidate_port()
+                return {"cmd": cmd, "ok": True, "lines": [],
+                        "note": "modem re-enumerated"}
+            raise
+        for line in lines:
+            ctx.log(line)
+        return {"cmd": cmd, "ok": True, "lines": lines}
+
+    jobs.register("modem.rescan", modem_rescan, LANE_MODEM)
+    jobs.register("modem.power", modem_power, LANE_MODEM, confirm=True,
+                  explain="Powering the radio down drops the 5G bearer and "
+                          "deregisters the UE.")
+    jobs.register("modem.reset", modem_reset, LANE_MODEM, confirm=True,
+                  cancellable=False,
+                  explain="AT+CFUN=1,1 power-cycles the RM520N. USB "
+                          "re-enumerates, so the AT and QMI devices disappear "
+                          "for about 40 seconds and the bearer drops.")
+    jobs.register("modem.manager", modem_manager, LANE_MODEM, confirm=True,
+                  explain="Unmasking ModemManager lets it contend for "
+                          "/dev/ttyUSB* and rewrite radio preferences.")
+    jobs.register("modem.at", modem_at, LANE_MODEM, confirm=True,
+                  explain="This AT command can drop the link.")
 
     logger.debug("registered %d job kinds", len(jobs.kinds()))
     return jobs

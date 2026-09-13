@@ -13,6 +13,7 @@ import { legacyView } from "../compat/legacy-view.js";
 
 export const SECTIONS = [
   { id: "overview", label: "Overview" },
+  { id: "radio", label: "Radio" },
   { id: "network", label: "Network" },
   { id: "testing", label: "Testing" },
   { id: "system", label: "System" },
@@ -37,6 +38,22 @@ export const ROUTES = [
     load: () => legacyView("setup"),
   },
   {
+    name: "modem",
+    path: "/modem",
+    title: "Modem",
+    icon: "chip",
+    section: "radio",
+    load: () => import("../views/modem.js"),
+  },
+  {
+    name: "signal",
+    path: "/signal",
+    title: "Signal",
+    icon: "signal",
+    section: "radio",
+    load: () => import("../views/signal.js"),
+  },
+  {
     name: "interfaces",
     path: "/interfaces",
     title: "Interfaces",
@@ -59,6 +76,14 @@ export const ROUTES = [
     icon: "terminal",
     section: "system",
     load: () => import("../views/logs.js"),
+  },
+  {
+    name: "debug",
+    path: "/debug",
+    title: "Debug",
+    icon: "bug",
+    section: "system",
+    load: () => import("../views/debug.js"),
   },
   {
     name: "diagnostics",

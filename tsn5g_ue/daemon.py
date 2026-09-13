@@ -55,7 +55,8 @@ class Daemon:
 
         self.jobs = JobManager(bus=self.bus, store=self.store)
 
-        self.controller = Controller(self.config)
+        self.controller = Controller(self.config, events=self.bus,
+                                     store=self.store, audit=self.audit)
         register_all(self.jobs, self.controller)
 
         core_ip = (self.config.vxlan or {}).get("core_ip")
@@ -109,7 +110,11 @@ class Daemon:
         # 2) Detect hardware and optionally auto-resume the last-good session.
         self.controller.start()
 
-        # 3) Periodic work.
+        # 3) Radio telemetry on its own thread, so a slow AT read cannot
+        #    delay stats collection or health checks.
+        self.controller.signal_poller.start()
+
+        # 4) Periodic work.
         self._main_loop()
         return 0
 
@@ -177,6 +182,7 @@ class Daemon:
         logger.info("shutting down...")
         # Stop accepting work before tearing the hardware down, or a job could
         # be reconfiguring the modem while disconnect() detaches it.
+        self.controller.signal_poller.stop()
         cancelled = self.jobs.cancel_all(timeout=5.0)
         if cancelled:
             logger.info("cancelled %d running job(s)", cancelled)
@@ -186,5 +192,6 @@ class Daemon:
             self.controller.disconnect()
         except Exception as exc:            # noqa: BLE001
             logger.error("error during disconnect: %s", exc)
+        self.controller.bus.stop()
         self.store.stop()
         logger.info("stopped")

@@ -29,6 +29,9 @@ import time
 
 MARIONETTE_PORT = 2829
 
+# Repeated often enough to be worth naming.
+CARD_COUNT = "return document.querySelectorAll('.card').length;"
+
 
 class Marionette:
     """Minimal Marionette client: `len:json`, where json is [0, id, cmd, params]."""
@@ -256,6 +259,70 @@ def main():
                   const bg = getComputedStyle(document.body).backgroundColor;
                   return bg && bg !== 'rgb(245, 247, 250)';
               """))
+
+        # ---- Phase 3: modem, signal, debug --------------------------------
+        print("=== modem view ===")
+        m.script("window.location.hash = '#/modem';")
+        m.wait_for("window.__tsn.store.get().ui.route === 'modem'", timeout=15,
+                   label="modem route")
+        m.wait_for("document.querySelectorAll('.card').length >= 4", timeout=15,
+                   label="modem cards")
+        check("modem view mounted", True,
+              f"{m.script(CARD_COUNT)} cards")
+        txt = m.wait_for("document.getElementById('content').textContent.length > 200",
+                         timeout=15, label="modem content")
+        check("modem view populated from /api/modem", bool(txt))
+        check("bus state is shown",
+              "AT port" in m.script("return document.getElementById('content').textContent;"))
+
+        print("=== signal view ===")
+        m.script("window.location.hash = '#/signal';")
+        m.wait_for("window.__tsn.store.get().ui.route === 'signal'", timeout=15,
+                   label="signal route")
+        m.wait_for("document.querySelectorAll('.card').length >= 3", timeout=15,
+                   label="signal cards")
+        check("signal view mounted", True)
+        check("history window control present",
+              m.script("return document.querySelectorAll('select').length;") >= 3)
+
+        print("=== debug view: the AT console ===")
+        m.script("window.location.hash = '#/debug';")
+        m.wait_for("window.__tsn.store.get().ui.route === 'debug'", timeout=15,
+                   label="debug route")
+        m.wait_for("document.querySelectorAll('.toolbar .btn').length > 3", timeout=15,
+                   label="diagnostic buttons")
+        check("diagnostic quick-buttons rendered from /api/modem/at/rules",
+              m.script("return document.querySelectorAll('.toolbar .btn').length;") > 3)
+
+        # Click Send rather than synthesising a key event: fewer moving parts,
+        # and it is the path a user actually takes.
+        sent = m.script("""
+            const i = document.querySelector('input[type=text]');
+            if (!i) return 'no input';
+            i.value = 'AT+QPRTPARA=3';
+            const send = [...document.querySelectorAll('.btn')]
+                .find(b => b.textContent.trim() === 'Send');
+            if (!send) return 'no send button';
+            send.click();
+            return 'sent';
+        """)
+        check("AT console accepted input", sent == "sent", str(sent))
+        try:
+            m.wait_for(
+                "(function(){ const p = document.querySelector('.logpane');"
+                " return p ? p.textContent.indexOf('REFUSED') >= 0 : false; })()",
+                timeout=20, label="refusal in the console")
+            refused = True
+        except AssertionError:
+            refused = False
+        pane = m.script("return (document.querySelector('.logpane')||{}).textContent || '';")
+        check("deny-listed AT command is refused in the console", refused,
+              "" if refused else f"pane was {pane[:120]!r}")
+        check("the refusal explains why", "factory defaults" in pane,
+              "" if "factory defaults" in pane else "explanation missing")
+
+        check("request inspector lists real calls",
+              m.script("return (window.__tsn.recorder.all()||[]).length;") > 5)
 
         # ---- console errors ----------------------------------------------------
         print("=== console ===")

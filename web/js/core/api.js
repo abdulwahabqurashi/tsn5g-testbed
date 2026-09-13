@@ -149,6 +149,29 @@ export function createApi({ base = "", timeout = 8000, fetchImpl, onCall } = {})
 
     modem: {
       check: (o) => POST("/api/modem/check", {}, o),
+      info: (o) => GET("/api/modem", o),
+      ports: (o) => GET("/api/modem/ports", o),
+      rescan: (o) => POST("/api/modem/ports/rescan", {}, o),
+      getPower: (o) => GET("/api/modem/power", o),
+      setPower: (body, o) => PUT("/api/modem/power", body, o),
+      reset: (body, o) => POST("/api/modem/reset", body, o),
+      getManager: (o) => GET("/api/modem/manager", o),
+      setManager: (body, o) => PUT("/api/modem/manager", body, o),
+      atRules: (o) => GET("/api/modem/at/rules", o),
+      // Timeout follows the command's own: a network scan legitimately takes
+      // minutes, and cutting it off at the client would look like a failure.
+      at: (body, o) => POST("/api/modem/at", body,
+                            { ...o, timeout: ((body.timeout || 8) + 5) * 1000 }),
+      atHistory: (query, o) => GET("/api/modem/at/history", { ...o, query }),
+      releaseBus: (o) => POST("/api/modem/bus/release", {}, o),
+    },
+
+    signal: {
+      now: (o) => GET("/api/signal", o),
+      sample: (o) => POST("/api/signal/sample", {}, { ...o, timeout: 15000 }),
+      history: (query, o) => GET("/api/signal/history", { ...o, query }),
+      getPoll: (o) => GET("/api/signal/poll", o),
+      setPoll: (body, o) => PUT("/api/signal/poll", body, o),
     },
 
     transport: {

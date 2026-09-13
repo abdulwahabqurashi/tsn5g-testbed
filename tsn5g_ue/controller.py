@@ -20,6 +20,10 @@ from .config import Config, StateStore
 from .discovery import Discovery
 from .gptp import GptpManager
 from .modem import ModemManager
+from .modem.bus import ModemBus
+from .modem.power import PowerControl
+from .modem.qmi import QmiClient
+from .modem.signal import SignalPoller
 from .netiface import NetIfaceManager
 from .platform import get_platform
 from .speedtest import SpeedTest
@@ -31,7 +35,7 @@ logger = logging.getLogger("tsn5g-ue.controller")
 
 
 class Controller:
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, events=None, store=None, audit=None):
         self.config = config
         self.state_store = StateStore(config.state_file)
         self.state = C.STATE_INITIALIZING
@@ -43,7 +47,18 @@ class Controller:
         # shared by every manager that touches OS-specific network/modem state.
         self.platform = get_platform(config)
         self.discovery = Discovery(config, platform=self.platform)
-        self.modem = ModemManager(config.modem, platform=self.platform)
+        # One AT broker shared by the manager, the signal poller, the jobs and
+        # the Debug console. Anything that opens /dev/ttyUSB* for itself
+        # reintroduces the contention this exists to remove.
+        self.bus = ModemBus(config=config.modem, audit=audit, events=events)
+        self.modem = ModemManager(config.modem, platform=self.platform,
+                                  bus=self.bus)
+        self.qmi = QmiClient(device=self.bus.ports().get("qmi")
+                             or config.modem.get("qmi_device"))
+        self.power = PowerControl(self.bus, events=events)
+        self.signal_poller = SignalPoller(self.modem, self.bus, events=events,
+                                          store=store)
+        self.identity = None
         self.transport = None
         self.gptp = GptpManager(config.gptp, config.hw_timestamp_interfaces())
         self.switch = SwitchManager(config.switch)

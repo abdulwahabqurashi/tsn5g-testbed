@@ -1,4 +1,18 @@
 """
+Modem manager — the facade the controller talks to.
+
+All AT traffic now goes through ModemBus rather than a serial handle owned
+here. That is the whole point of the bus: this class, the signal poller, the
+Debug console and every job would otherwise each open /dev/ttyUSB* for
+themselves, and two owners produce "device reports readiness to read but
+returned no data" — the error this rig hit when a connect and a modem check
+overlapped.
+
+Response parsing moved to parse.py, where it is covered by tests instead of
+being discovered on hardware.
+
+Original description follows.
+
 Modem manager — Quectel RM520N-GL over AT commands (+ qmicli for data format).
 
 Two responsibilities, matching the guided-setup steps:
@@ -17,7 +31,9 @@ import os
 import re
 import time
 
-from . import utils
+from .. import utils
+from . import parse
+from .bus import AtError as _AtError, P_HIGH as _P_HIGH
 
 logger = logging.getLogger("tsn5g-ue.modem")
 
@@ -110,12 +126,12 @@ class ModemError(RuntimeError):
 
 
 class ModemManager:
-    def __init__(self, modem_cfg, platform=None):
+    def __init__(self, modem_cfg, platform=None, bus=None):
         self.cfg = modem_cfg or {}
         # OS provider (OpenWRT/Linux) for the IP-PDU data session + DHCP/route.
         # Imported lazily so tests can construct a ModemManager without one.
         if platform is None:
-            from .platform import get_platform
+            from ..platform import get_platform
             platform = get_platform()
         self.platform = platform
         self.device = self.cfg.get("device")
@@ -124,10 +140,18 @@ class ModemManager:
         self.baud = self.cfg.get("baud_rate", 115200)
         self.qmi_device = self.cfg.get("qmi_device", "/dev/cdc-wdm0")
 
-        self._serial = None
+        # The shared AT broker. Created here if the caller did not supply one,
+        # so a bare ModemManager still works in tests.
+        if bus is None:
+            from .bus import ModemBus
+            bus = ModemBus(config=self.cfg)
+        self.bus = bus
+
         self.registered = False
         self.pdu_active = False
         self.mode = None
+        self.pci = None
+        self.cellid = None
         self.sim_ready = False
         self.operator = None
         self.model = None
@@ -155,41 +179,38 @@ class ModemManager:
                 "no modem AT port found (probed /dev/ttyUSB*, /dev/ttyACM*)")
         return self.device
 
+    # -- AT access ----------------------------------------------------------
+    # These delegate to the shared bus. They keep the old names and shapes so
+    # the connect path below is unchanged, but there is no serial handle here
+    # any more.
+
     def _open(self):
-        if self._serial:
-            return
-        try:
-            import serial  # pyserial, lazy
-        except ImportError as exc:
-            raise ModemError("pyserial not installed") from exc
-        dev = self._resolve_device()
-        self._serial = serial.Serial(dev, self.baud, timeout=1)
-        self._at("ATE0")  # echo off
+        """No-op: the bus opens the port on demand and closes it when idle."""
+        if self.bus is None:
+            raise ModemError("modem bus not available")
 
     def _close(self):
-        if self._serial:
-            try:
-                self._serial.close()
-            except Exception:  # noqa: BLE001
-                pass
-            self._serial = None
+        """No-op: port lifetime belongs to the bus."""
 
-    def _at(self, cmd, timeout=3):
-        """Send an AT command, return the response lines (list of str)."""
-        if not self._serial:
-            raise ModemError("serial not open")
-        self._serial.reset_input_buffer()
-        self._serial.write((cmd + "\r\n").encode())
-        deadline = time.time() + timeout
-        buf = ""
-        while time.time() < deadline:
-            chunk = self._serial.read(256).decode(errors="ignore")
-            buf += chunk
-            if "OK" in buf or "ERROR" in buf:
-                break
-        if "ERROR" in buf:
-            raise ModemError(f"AT command failed: {cmd!r} -> {buf.strip()}")
-        return [ln.strip() for ln in buf.splitlines() if ln.strip() and ln.strip() != "OK"]
+    def _at(self, cmd, timeout=5):
+        """Send one AT command through the bus. Raises ModemError."""
+        if self.bus is None:
+            raise ModemError("modem bus not available")
+        try:
+            return self.bus.command(cmd, timeout=timeout, priority=_P_HIGH,
+                                    reason="manager")
+        except _AtError as exc:
+            raise ModemError(str(exc)) from exc
+
+    def _at_script(self, cmds, timeout=5):
+        """Several commands as one indivisible turn, so nothing interleaves."""
+        if self.bus is None:
+            raise ModemError("modem bus not available")
+        try:
+            return self.bus.script(cmds, timeout=timeout, priority=_P_HIGH,
+                                   stop_on_error=False, reason="manager")
+        except _AtError as exc:
+            raise ModemError(str(exc)) from exc
 
     # ----------------------------------------------------------------- check
     def check(self):
@@ -217,46 +238,51 @@ class ModemManager:
         return self.get_status()
 
     def refresh_signal(self):
-        try:
-            if not self._serial:
-                self._open()
-            eng = " ".join(self._at('AT+QENG="servingcell"'))
-            # RM520N-GL NR5G-SA line (verified on hardware):
-            #   +QENG: "servingcell",<state>,"NR5G-SA",<dup>,<mcc>,<mnc>,<cellid>,
-            #          <pci>,<?>,<arfcn>,<band>,<dl_bw>,<RSRP>,<RSRQ>,<SINR>,...
-            # RSRP/RSRQ/SINR sit at fixed offsets but the cell-id field is hex and
-            # trips a naive digit scan, so parse positionally: RSRP is the first
-            # field in the valid dBm range, with RSRQ/SINR immediately after.
-            if "NR5G-SA" in eng:
-                tail = eng.split('"NR5G-SA"', 1)[1]
-                vals = []
-                for f in tail.split(","):
-                    f = f.strip().strip('"')
-                    try:
-                        vals.append(int(f))
-                    except ValueError:
-                        vals.append(None)
-                for i, v in enumerate(vals):
-                    if v is not None and -140 <= v <= -40:  # plausible RSRP (dBm)
-                        self.signal["rsrp"] = v
-                        if i + 1 < len(vals) and vals[i + 1] is not None:
-                            self.signal["rsrq"] = vals[i + 1]
-                        if i + 2 < len(vals) and vals[i + 2] is not None:
-                            self.signal["sinr"] = vals[i + 2]
-                        # band sits two fields before RSRP, ARFCN three before.
-                        self.rat = "NR5G-SA"
-                        if i >= 2 and vals[i - 2] is not None:
-                            self.band = "n%d" % vals[i - 2]
-                        if i >= 3 and vals[i - 3] is not None:
-                            self.arfcn = vals[i - 3]
-                        break
-            csq = " ".join(self._at("AT+CSQ"))
-            m = re.search(r'\+CSQ:\s*(\d+)', csq)
-            if m and m.group(1) != "99":
-                self.signal["rssi"] = -113 + 2 * int(m.group(1))
-        except ModemError as exc:
-            logger.debug("signal refresh failed: %s", exc)
+        """Read serving-cell and signal metrics. Never raises.
+
+        Uses try_command so a signal poll cannot queue behind a four-minute
+        network scan; a skipped read is reported as stale rather than being
+        served from a stale cache without saying so.
+        """
+        if self.bus is None:
+            return self.signal
+        lines = self.bus.try_command('AT+QENG="servingcell"', timeout=6,
+                                     reason="signal")
+        if lines is None:
+            self.signal["stale"] = True
+            return self.signal
+
+        cell = parse.qeng(lines)
+        if cell["rsrp"] is not None:
+            self.signal.update({"rsrp": cell["rsrp"], "rsrq": cell["rsrq"],
+                                "sinr": cell["sinr"]})
+            self.rat = cell["rat"]
+            self.band = cell["band"]
+            self.arfcn = cell["arfcn"]
+            self.pci = cell["pci"]
+            self.cellid = cell["cellid"]
+
+        csq_lines = self.bus.try_command("AT+CSQ", timeout=4, reason="signal")
+        if csq_lines is not None:
+            rssi = parse.csq(csq_lines)["rssi"]
+            if rssi is not None:
+                self.signal["rssi"] = rssi
+
+        self.signal["stale"] = False
+        self.signal["ts"] = time.time()
         return self.signal
+
+    def branches(self):
+        """Per-antenna RSRP/RSRQ/SINR. All branches at -140 means no RF."""
+        if self.bus is None:
+            return {}
+        out = {}
+        for cmd, key, fn in (("AT+QRSRP", "rsrp", parse.qrsrp),
+                             ("AT+QRSRQ", "rsrq", parse.qrsrq),
+                             ("AT+QSINR", "sinr", parse.qsinr)):
+            lines = self.bus.try_command(cmd, timeout=5, reason="branches")
+            out[key] = fn(lines) if lines is not None else None
+        return out
 
     # ----------------------------------------------------------------- attach
     def attach(self, mode, dnn):
@@ -333,12 +359,12 @@ class ModemManager:
             except Exception as exc:  # noqa: BLE001
                 logger.debug("teardown_ip_pdu failed: %s", exc)
         try:
-            if self._serial:
-                self._at(f"AT+CGACT=0,{self.cid}")
+            self._at(f"AT+CGACT=0,{self.cid}", timeout=10)
         except ModemError as exc:
+            # The port may already be gone (reset, unplug). Detaching is
+            # best-effort by design; the QMI teardown above is what matters.
             logger.debug("detach CGACT failed: %s", exc)
         self.pdu_active = False
-        self._close()
         logger.info("modem detached")
 
     # ----------------------------------------------------------------- status
