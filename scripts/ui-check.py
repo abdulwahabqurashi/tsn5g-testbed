@@ -651,6 +651,72 @@ def main():
               host_val == (cfg_sw.get("host") or ""),
               f"form {host_val!r} vs config {cfg_sw.get('host')!r}")
 
+        # ---- throughput: both ends, and a verdict before the run ------------
+        print("=== client and server are both specified ===")
+        m.script("window.location.hash = '#/throughput';")
+        m.wait_for("window.__tsn.store.get().ui.route === 'throughput'",
+                   timeout=15, label="throughput route")
+        m.wait_for("document.querySelectorAll('#content input').length >= 4",
+                   timeout=25, label="test form")
+        text = m.script("return document.getElementById('content').textContent;")
+        check("the client address is a field, not a hidden constant",
+              "Client" in text,
+              "binding was forced to the bearer with no way to change it")
+        check("the server is still named separately", "Server" in text)
+
+        addrs = json.loads(m.script("""
+            return fetch('/api/iperf/defaults').then(r => r.json())
+                   .then(d => JSON.stringify(d.client_addresses || []));
+        """))
+        check("client addresses are offered from the host, not typed blind",
+              len(addrs) > 0, f"{[a['address'] for a in addrs]}")
+
+        # The failure this replaces was a 30s wait ending in a timeout message
+        # that named a symptom. It should now be refused with a reason.
+        bad = json.loads(m.script("""
+            return fetch('/api/iperf/path', {method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({server:'10.5.1.19', bind:'10.45.0.6'})})
+                .then(r => r.json()).then(d => JSON.stringify(d));
+        """))
+        if bad.get("owner") and bad.get("dev") and bad["owner"] != bad["dev"]:
+            check("a client that cannot reach the server is refused up front",
+                  bad.get("ok") is False, f"ok={bad.get('ok')}")
+            check("the refusal explains why, not just that",
+                  "belongs to" in (bad.get("reason") or ""),
+                  bad.get("reason") or "no reason given")
+
+        print("=== command output is evidence, not the display ===")
+        # Leading with a terminal pane made reading a result an act of parsing.
+        check("raw output sits behind a disclosure",
+              m.script("return document.querySelectorAll"
+                       "('#content details.raw-output').length;") >= 1,
+              "the log pane should not be the primary display")
+
+        print("=== background traffic actually stops ===")
+        state = json.loads(m.script("""
+            return fetch('/api/perf/dummy').then(r => r.json())
+                   .then(d => JSON.stringify(d));
+        """))
+        check("the generator reports a real state", "running" in state,
+              json.dumps(state)[:120])
+        if not state.get("running"):
+            check("nothing is loading the link during the checks", True)
+
+        print("=== routing reads without parsing transcripts ===")
+        m.script("window.location.hash = '#/routing';")
+        m.wait_for("window.__tsn.store.get().ui.route === 'routing'",
+                   timeout=15, label="routing route")
+        m.wait_for("document.getElementById('content').textContent.length > 300",
+                   timeout=25, label="routing content")
+        text = m.script("return document.getElementById('content').textContent;")
+        check("policy state is summarised before the raw output",
+              "Policy rules" in text and "Marking rules" in text,
+              "ip rule / iptables -S dumps were the whole panel")
+        check("the raw transcripts are still available",
+              m.script("return document.querySelectorAll"
+                       "('#content details.raw-output').length;") >= 1)
+
         # ---- console errors ----------------------------------------------------
         print("=== console ===")
         errs = m.script("return (window.__tsn_errors || []).length;") or 0

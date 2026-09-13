@@ -23,6 +23,8 @@ export default defineView({
     const stateBody = h("div");
     const classBody = h("div");
     const logPane = h("div", { class: "log logpane", style: { "max-height": "180px" } });
+    const logWrap = h("details", { class: "raw-output" },
+      h("summary", { class: "hint", text: "Job output" }), logPane);
 
     view.root.appendChild(h("div", { class: "grid" },
       card("Active transport", { span: "col5" }, stateBody),
@@ -30,7 +32,7 @@ export default defineView({
         h("div", { class: "card-head" },
           h("h3", { text: "Traffic classes" }),
           h("span", { class: "hint", text: "VLAN → VNI, PCP and DSCP" })),
-        classBody, logPane)));
+        classBody, logWrap)));
 
     function paintState(status) {
       clear(stateBody);
@@ -83,6 +85,7 @@ export default defineView({
 
     async function run(starter, label) {
       clear(logPane);
+      logWrap.open = true;
       logPane.appendChild(h("div", { class: "logline lvl-info", text: `> ${label}` }));
       try {
         const res = await starter();

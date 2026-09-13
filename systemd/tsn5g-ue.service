@@ -26,6 +26,12 @@ StateDirectory=tsn5g-ue
 # /run/tsn5g-ue — bearer PDH/CID and applied routing rules. Must NOT survive a
 # reboot: neither does the data call they describe.
 RuntimeDirectory=tsn5g-ue
+# Without this systemd deletes /run/tsn5g-ue on every stop, taking the
+# bearer's packet data handle with it — and a data call whose handle is
+# gone can only be abandoned, not stopped. The directory holds runtime
+# state that must outlive the daemon but not a reboot, which is exactly
+# what RuntimeDirectoryPreserve=yes means.
+RuntimeDirectoryPreserve=yes
 # A wedged SSE stream or in-flight job must not block a restart indefinitely.
 TimeoutStopSec=15
 

@@ -5,6 +5,7 @@ The /api/speedtest/* routes are kept as thin aliases so the old UI keeps
 working through the transition; they are deleted with the legacy views.
 """
 
+from ..perf import iperf
 from ..perf.iperf import DEFAULT_LEGS, IperfError
 from .router import ApiError, Response
 
@@ -53,6 +54,25 @@ def register(router):
                         headers={"Content-Disposition":
                                  f'attachment; filename="{req.params["id"]}.csv"'})
 
+    @router.post("/api/iperf/path")
+    def iperf_path(req):
+        """Would a client at `bind` reach `server`, and over which interface?
+
+        Exists because the failure this catches is otherwise a thirty-second
+        wait ending in "did not finish in time", which names a symptom and not
+        a cause.
+        """
+        r = _iperf(req)
+        server = req.require("server")
+        bind = (req.opt("bind") or "").strip() or iperf.bind_address(r.iface)
+        if not bind:
+            return {"ok": None, "bind": None,
+                    "reason": f"{r.iface} has no address yet"}
+        out = iperf.check_path(bind, server)
+        out["bind"] = bind
+        out["server"] = server
+        return out
+
     # -- running -------------------------------------------------------------
     @router.post("/api/iperf/run")
     def run(req):
@@ -90,6 +110,7 @@ def register(router):
         if kind == "load":
             return req.ctx.submit_job("perf.load", {
                 "server": req.opt("server"),
+                "bind": req.opt("bind"),
                 "dir": req.choice("dir", ("up", "down"), default="up"),
                 "proto": req.choice("proto", ("tcp", "udp"), default="tcp"),
                 "parallel": req.integer("parallel", default=1, lo=1, hi=32),
@@ -128,6 +149,10 @@ def register(router):
 def _spec(req):
     return {
         "server": req.opt("server"),
+        # Which local address the client leaves from. Empty means the bearer,
+        # which is the default and the safe answer; an explicit value lets the
+        # wired path be measured deliberately rather than by accident.
+        "bind": req.opt("bind"),
         "port": req.integer("port", default=5201, lo=1, hi=65535),
         "duration": req.integer("duration", default=10, lo=1, hi=600),
         "parallel": req.integer("parallel", default=1, lo=1, hi=32),

@@ -407,3 +407,23 @@ table.tbl tr:hover td { background: var(--panel-2); }
 body { font-family: var(--font-ui); font-size: var(--fs-body); }
 .mono, code, pre { font-family: var(--font-mono); }
 .app { grid-template-columns: var(--sidebar-w) 1fr; }
+
+/* ---- Throughput: live test readout -------------------------------------
+   The command output used to be the display. It is evidence now: collapsed
+   by default, with the measurement itself shown as numbers and a line that
+   moves while the test runs. */
+.path-verdict { margin: 6px 0 2px; min-height: 1.2em; }
+.path-verdict .hint { display: flex; align-items: center; gap: 6px; }
+
+.live-head { display: flex; align-items: center; gap: 10px; margin: 10px 0 4px; }
+
+.raw-output { margin-top: 12px; }
+.raw-output > summary {
+  cursor: pointer; user-select: none; padding: 4px 0;
+  border-top: 1px solid var(--line);
+}
+.raw-output > summary::marker { color: var(--faint); }
+.raw-output[open] > summary { margin-bottom: 6px; }
+
+/* Kiosk: the disclosure triangle is a small target, so give it a real one. */
+:root[data-density="kiosk"] .raw-output > summary { padding: 10px 0; }

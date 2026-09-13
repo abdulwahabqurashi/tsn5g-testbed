@@ -21,6 +21,7 @@ instead and prove nothing.
 
 import logging
 import re
+import select
 import socket
 import subprocess
 import time
@@ -67,14 +68,22 @@ class LoadGenerator:
     # -- continuous iperf3 load ---------------------------------------------
     def run_load(self, spec, ctx):
         """iperf3 with no time limit, bound to the bearer."""
-        bind = bind_address(self.iface)
+        # Same client override the measured runs take. The default is still
+        # the bearer — an unbound generator would load the wired network while
+        # claiming to load 5G — but the choice is the operator's to make.
+        bind = (spec.get("bind") or "").strip() or bind_address(self.iface)
         if not bind:
             raise DummyError(
-                f"{self.iface} has no address. Bring the bearer up first — an "
-                f"unbound generator would load the wired network instead.")
+                f"{self.iface} has no address. Bring the bearer up first, or "
+                f"name a client address — an unbound generator would load the "
+                f"wired network instead.")
 
         server = spec.get("server") or self.server
-        cmd = ["iperf3", "-c", server, "-B", bind, "-t", "0", "-i", "10"]
+        # --forceflush: without it iperf3 block-buffers into the pipe and the
+        # UI shows nothing for minutes on a generator that is plainly running.
+        # -i 2: often enough to draw a line that moves.
+        cmd = ["iperf3", "-c", server, "-B", bind, "-t", "0", "-i", "2",
+               "--forceflush"]
         if spec.get("dir") == "down":
             cmd.append("-R")
         if spec.get("parallel", 1) > 1:
@@ -185,40 +194,94 @@ class LoadGenerator:
 
     # -- shared supervision ---------------------------------------------------
     def _supervise(self, cmd, ctx, label):
-        """Run a long-lived subprocess, streaming its output, until cancelled."""
+        """Run a long-lived subprocess, streaming its output, until cancelled.
+
+        Cancellation used to be checked only after ``readline()`` returned,
+        which made Stop look broken: iperf3's stdout is a pipe, so it
+        block-buffers, and an interval line every 10 s takes minutes to fill
+        4 KB. The read blocked for all of it and the cancel flag was never
+        seen — the generator kept loading the bearer with the UI saying it had
+        stopped. So: --forceflush to get the lines out at each interval, and
+        select() so the loop wakes on a timer whether or not anything arrived.
+        """
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True, bufsize=1)
         started = time.monotonic()
         lines = 0
+
+        def stop(reason):
+            ctx.log(reason)
+            proc.terminate()
+            try:
+                proc.wait(timeout=8)
+            except subprocess.TimeoutExpired:
+                ctx.log("did not respond to terminate; killing")
+                proc.kill()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
+
         try:
             while True:
                 if ctx.cancel.is_set():
-                    ctx.log("stopping")
-                    proc.terminate()
-                    try:
-                        proc.wait(timeout=8)
-                    except subprocess.TimeoutExpired:
-                        proc.kill()
+                    stop("stopping")
                     from ..core.jobs import JobCancelled
                     raise JobCancelled(f"{label} stopped")
+
+                # Wake at least twice a second so Stop is honoured promptly
+                # even from a generator that never writes another byte.
+                ready, _, _ = select.select([proc.stdout], [], [], 0.5)
+                if not ready:
+                    if proc.poll() is not None:
+                        break
+                    continue
+
                 line = proc.stdout.readline()
                 if not line:
                     if proc.poll() is not None:
-                        code = proc.returncode
-                        ctx.log(f"iperf3 exited with {code}")
-                        if code != 0:
-                            raise DummyError(
-                                f"the generator exited unexpectedly (code {code}). "
-                                f"Is iperf3 -s running on the far side?")
                         break
-                    time.sleep(0.2)
                     continue
                 text = line.strip()
                 # Only the periodic summary lines are worth showing.
                 if re.search(r"\d+\.\d+-\s*\d+\.\d+\s+sec", text):
                     ctx.log(text)
                     lines += 1
+                    self._publish_sample(text, label)
         finally:
             if proc.poll() is None:
                 proc.kill()
+
+        code = proc.returncode
+        ctx.log(f"iperf3 exited with {code}")
+        if code not in (0, None):
+            raise DummyError(
+                f"the generator exited unexpectedly (code {code}). "
+                f"Is iperf3 -s running on the far side?")
         return {"ran_s": round(time.monotonic() - started, 1), "reports": lines}
+
+    # Interval lines look like:
+    #   [  5]   0.00-10.00  sec  176 MBytes   148 Mbits/sec    0   1.26 MBytes
+    _INTERVAL = re.compile(
+        r"([\d.]+)-\s*([\d.]+)\s+sec.*?([\d.]+)\s+([KMG]?)bits/sec"
+        r"(?:\s+(\d+))?", re.I)
+    _UNIT = {"": 1e-6, "K": 1e-3, "M": 1.0, "G": 1e3}
+
+    def _publish_sample(self, text, label):
+        """Emit a throughput point so the UI can chart a running generator."""
+        if self.events is None:
+            return
+        m = self._INTERVAL.search(text)
+        if not m:
+            return
+        try:
+            mbps = float(m.group(3)) * self._UNIT.get(m.group(4).upper(), 1.0)
+        except (TypeError, ValueError):
+            return
+        from ..core.events import TOPIC_IPERF
+        self.events.publish(TOPIC_IPERF, {
+            "sample": True, "source": label, "t": time.time(),
+            "from_s": float(m.group(1)), "to_s": float(m.group(2)),
+            "mbps": round(mbps, 2),
+            "retransmits": int(m.group(5)) if m.group(5) else None,
+        })

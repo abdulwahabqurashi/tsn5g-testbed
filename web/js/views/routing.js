@@ -12,7 +12,7 @@ import { ApiError } from "../core/api.js";
 import { defineView } from "../core/component.js";
 import { confirm, toast } from "../core/dialog.js";
 import { clear, h } from "../core/dom.js";
-import { badge, btnRow, button, card, field, row, select, table } from "../ui/widgets.js";
+import { badge, btnRow, button, card, field, kpi, row, select, table } from "../ui/widgets.js";
 
 export default defineView({
   name: "routing",
@@ -242,18 +242,56 @@ export default defineView({
 
     function paintLive(live) {
       clear(liveBody);
+
+      // A summary first. The raw `ip rule` / `iptables -S` output is still
+      // here, but reading whether policy routing is set up should not require
+      // parsing three command transcripts.
+      const rules = (live.ip_rule || []).filter(
+        (r) => !/lookup\s+(local|main|default)\s*$/.test(r));
+      const marks = live.mangle_output || [];
+      const nats = live.nat_postrouting || [];
+      const tables = Object.entries(live.tables || {});
+
+      liveBody.appendChild(h("div", { class: "kpis" },
+        kpi("Policy rules", String(rules.length)),
+        kpi("Marking rules", String(marks.length)),
+        kpi("NAT rules", String(nats.length)),
+        kpi("Tables", String(tables.length))));
+
+      if (rules.length) {
+        liveBody.appendChild(table(["Match", "Looks up"], rules.map((r) => {
+          const m = /from\s+(\S+)(?:\s+fwmark\s+(\S+))?.*lookup\s+(\S+)/.exec(r);
+          if (!m) return [h("span", { class: "mono", text: r }), ""];
+          return [
+            h("span", { class: "mono",
+                        text: m[2] ? `mark ${m[2]}` : `from ${m[1]}` }),
+            h("span", { class: "mono", text: `table ${m[3]}` }),
+          ];
+        })));
+      }
+
+      for (const [t, routes] of tables) {
+        liveBody.appendChild(h("div", { class: "kpi-label", text: `table ${t}` }));
+        if (!routes.length) {
+          liveBody.appendChild(h("p", { class: "muted" }, "empty"));
+        } else {
+          liveBody.appendChild(h("pre", { class: "log",
+            style: { "max-height": "90px" }, text: routes.join("\n") }));
+        }
+      }
+
+      const raw = h("details", { class: "raw-output" },
+        h("summary", { class: "hint", text: "Raw ip rule / iptables output" }));
       const pre = (title, lines) => {
-        liveBody.appendChild(h("div", { class: "kpi-label", text: title }));
-        liveBody.appendChild(h("pre", { class: "log",
+        raw.appendChild(h("div", { class: "kpi-label", text: title }));
+        raw.appendChild(h("pre", { class: "log",
           style: { "max-height": "130px" },
           text: (lines && lines.length) ? lines.join("\n") : "(none)" }));
       };
       pre("ip rule", live.ip_rule);
       pre("mangle OUTPUT (marking)", live.mangle_output);
       pre("nat POSTROUTING", live.nat_postrouting);
-      for (const [t, routes] of Object.entries(live.tables || {})) {
-        pre(`table ${t}`, routes);
-      }
+      liveBody.appendChild(raw);
 
       // A rule pointing at an empty table is the failure that looks like
       // success: `ip rule` and the mangle marks are all present, so the setup

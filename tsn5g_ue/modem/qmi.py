@@ -50,6 +50,7 @@ class QmiClient:
     def __init__(self, device=None, state_path=DEFAULT_STATE, audit=None):
         self.device = device
         self.state_path = state_path
+        self._announced_adopt = None
 
     # -- plumbing -----------------------------------------------------------
     def _run(self, *args, timeout=45, check=True):
@@ -90,8 +91,13 @@ class QmiClient:
                 out[key] = value
         if out:
             out["adopted_from"] = SCRIPT_STATE
-            logger.info("adopted data handle %s (cid %s) from %s",
-                        out.get("pdh"), out.get("cid"), SCRIPT_STATE)
+            # load_state() runs on every status poll, so this must announce
+            # itself once per distinct handle, not several times a second.
+            handle = (out.get("pdh"), out.get("cid"))
+            if handle != self._announced_adopt:
+                self._announced_adopt = handle
+                logger.info("adopted data handle %s (cid %s) from %s",
+                            out.get("pdh"), out.get("cid"), SCRIPT_STATE)
         return out
 
     def save_state(self, data):

@@ -81,6 +81,84 @@ def bind_address(iface):
     return m.group(1) if m else None
 
 
+def local_addresses():
+    """Every usable local IPv4, newest-interface-agnostic, for the client picker."""
+    proc = utils.run(["ip", "-4", "-o", "addr", "show"], check=False, timeout=10)
+    out = []
+    for line in (proc.stdout or "").splitlines():
+        m = re.match(r"\d+:\s+(\S+)\s+inet\s+(\d+\.\d+\.\d+\.\d+)", line)
+        if not m or m.group(1) == "lo":
+            continue
+        out.append({"iface": m.group(1), "address": m.group(2)})
+    return out
+
+
+def resolve_bind(spec, iface):
+    """Which local address the test should leave from.
+
+    Defaults to the bearer, which is the whole point of making -B mandatory:
+    an unbound run quietly travels over gigabit ethernet and reports a number
+    that has nothing to do with 5G. But the operator may legitimately want to
+    measure the wired path, or bind to a second UE address, so an explicit
+    choice wins over the default.
+    """
+    explicit = (spec.get("bind") or "").strip()
+    if explicit:
+        return explicit, "explicit"
+    addr = bind_address(iface)
+    return addr, iface
+
+
+def check_path(bind, server):
+    """Does a socket bound to `bind` have a route to `server`?
+
+    Worth doing before the run because the failure mode is otherwise a wait:
+    iperf3 bound to the modem address and aimed at a wired host does not
+    refuse, it hangs until the timeout and reports "did not finish in time",
+    which says nothing about the cause.
+
+    Returns {ok, dev, src, reason}. ok=None means the question could not be
+    answered, which is not the same as a failure and never blocks a run.
+    """
+    if not bind or not server:
+        return {"ok": None, "reason": "no address to check"}
+    proc = utils.run(["ip", "route", "get", server, "from", bind],
+                     check=False, timeout=10)
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        reason = out.strip().splitlines()[0] if out.strip() else "no route"
+        return {"ok": False, "dev": None, "src": bind, "reason": reason}
+    m = re.search(r"\bdev\s+(\S+)", out)
+    dev = m.group(1) if m else None
+
+    # `ip route get ... from <addr>` answers happily even when <addr> belongs
+    # to a different interface than the one the route egresses — it reports the
+    # route, not whether the pairing works. It does not: the SYNs leave via the
+    # egress interface carrying a source address routed elsewhere, and the
+    # replies never come back. iperf3 does not refuse, it waits, and the run
+    # ends as "did not finish in time". That is the case worth catching.
+    owner = _address_owner(bind)
+    if dev and owner and owner != dev:
+        return {
+            "ok": False, "dev": dev, "src": bind, "owner": owner,
+            "reason": (f"{bind} belongs to {owner}, but traffic to {server} "
+                       f"leaves via {dev}. The far side would have no route "
+                       f"back, so the test would hang rather than fail."),
+        }
+    return {"ok": True, "dev": dev, "src": bind, "owner": owner,
+            "raw": out.strip()}
+
+
+def _address_owner(addr):
+    """Which interface holds this address, or None if no local interface does."""
+    proc = utils.run(["ip", "-4", "-o", "addr", "show"], check=False, timeout=10)
+    for line in (proc.stdout or "").splitlines():
+        m = re.match(r"\d+:\s+(\S+)\s+inet\s+(\d+\.\d+\.\d+\.\d+)", line)
+        if m and m.group(2) == addr:
+            return m.group(1)
+    return None
+
+
 def build_command(spec, bind):
     """Exactly the invocation iperf5g.sh uses."""
     cmd = ["iperf3", "-c", spec["server"], "-B", bind,
@@ -186,6 +264,9 @@ class IperfRunner:
             "bind_iface": self.iface, "bind_address": bind_address(self.iface),
             "legs": DEFAULT_LEGS, "udp_rate": DEFAULT_UDP_RATE,
             "length": DEFAULT_LENGTH, "log_root": self.log_root,
+            # Every local address, so the client can be chosen from a list
+            # instead of typed. The bearer is the default, not the only option.
+            "client_addresses": local_addresses(),
         }
 
     def current(self):
@@ -193,12 +274,21 @@ class IperfRunner:
 
     # -- one leg ------------------------------------------------------------
     def run_leg(self, spec, run_dir=None, seq=1, ctx=None, cancel=None):
-        bind = bind_address(self.iface)
+        bind, source = resolve_bind(spec, self.iface)
         if not bind:
             raise IperfError(
-                f"{self.iface} has no IPv4 address. Bring the bearer up first "
-                f"— without -B the test would measure the wired interface and "
-                f"report it as 5G.")
+                f"{self.iface} has no IPv4 address. Bring the bearer up first, "
+                f"or set a client address explicitly — without -B the test "
+                f"would measure the wired interface and report it as 5G.")
+
+        # Fail in a second with the cause rather than in thirty with a timeout.
+        path = check_path(bind, spec["server"])
+        if path.get("ok") is False:
+            raise IperfError(path.get("reason")
+                             or f"no route from {bind} to {spec['server']}")
+        if ctx and path.get("dev"):
+            ctx.log(f"client {bind} ({source}) -> {spec['server']} "
+                    f"via {path['dev']}")
 
         cmd = build_command(spec, bind)
         leg = f"{spec['proto']}-{spec['dir']}"

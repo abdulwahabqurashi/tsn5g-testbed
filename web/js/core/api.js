@@ -266,6 +266,7 @@ export function createApi({ base = "", timeout = 8000, fetchImpl, onCall } = {})
     // -- performance -----------------------------------------------------
     iperf: {
       defaults: (o) => GET("/api/iperf/defaults", o),
+      path: (body, o) => POST("/api/iperf/path", body, o),
       run: (body, o) => POST("/api/iperf/run", body, o),
       loop: (body, o) => POST("/api/iperf/loop", body, o),
       runs: (query, o) => GET("/api/iperf/runs", { ...o, query }),

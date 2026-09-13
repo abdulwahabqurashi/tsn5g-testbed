@@ -29,6 +29,8 @@ export default defineView({
     const lockBody = h("div");
     const scanBody = h("div");
     const jobLog = h("div", { class: "log logpane", style: { "max-height": "200px" } });
+    const jobLogWrap = h("details", { class: "raw-output" },
+      h("summary", { class: "hint", text: "Job output" }), jobLog);
 
     view.root.appendChild(h("div", { class: "grid" },
       card("Serving cell", { span: "col4" }, stateBody),
@@ -39,7 +41,7 @@ export default defineView({
         h("div", { class: "card-head" },
           h("h3", { text: "Survey & recovery" }),
           h("span", { class: "hint", text: "minutes, not seconds" })),
-        scanBody, jobLog)));
+        scanBody, jobLogWrap)));
 
     let running = null;
 
@@ -51,6 +53,7 @@ export default defineView({
     async function runJob(starter, label) {
       if (running) { toast("another modem operation is running", "err"); return null; }
       clear(jobLog);
+      jobLogWrap.open = true;
       echo(`> ${label}`, "lvl-info");
       let res;
       try {

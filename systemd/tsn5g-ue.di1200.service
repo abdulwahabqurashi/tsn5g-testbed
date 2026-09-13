@@ -20,6 +20,12 @@ Restart=on-failure
 RestartSec=3
 StateDirectory=tsn5g-ue
 RuntimeDirectory=tsn5g-ue
+# Without this systemd deletes /run/tsn5g-ue on every stop, taking the
+# bearer's packet data handle with it — and a data call whose handle is
+# gone can only be abandoned, not stopped. The directory holds runtime
+# state that must outlive the daemon but not a reboot, which is exactly
+# what RuntimeDirectoryPreserve=yes means.
+RuntimeDirectoryPreserve=yes
 TimeoutStopSec=15
 
 [Install]

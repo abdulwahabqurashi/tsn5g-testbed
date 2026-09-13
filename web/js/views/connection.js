@@ -46,6 +46,9 @@ export default defineView({
     const stateBody = h("div");
     const stepsBody = h("div");
     const logPane = h("div", { class: "log logpane", style: { "max-height": "260px" } });
+    // The stepper above is the status; this is the transcript behind it.
+    const logWrap = h("details", { class: "raw-output" },
+      h("summary", { class: "hint", text: "Step output" }), logPane);
     const actions = h("div", { class: "btn-row" });
 
     const apnInput = h("input", { type: "text", class: "mini-input",
@@ -63,7 +66,7 @@ export default defineView({
           h("h3", { text: "Progress" }),
           h("span", { class: "hint", text: "six steps, from ue_qmi_up.sh" })),
         stepsBody,
-        logPane)));
+        logWrap)));
 
     let activeJob = null;
 
@@ -121,6 +124,7 @@ export default defineView({
     }
 
     function paintSteps(job) {
+      if (job?.state === "failed") logWrap.open = true;
       clear(stepsBody);
       const steps = job?.steps || [];
       if (!steps.length) {
