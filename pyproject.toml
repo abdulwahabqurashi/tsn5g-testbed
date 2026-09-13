@@ -21,7 +21,8 @@ tsn5g-ue = "tsn5g_ue.__main__:main"
 
 [tool.setuptools]
 # The web/ tree is data shipped alongside the package and located at runtime.
-packages = ["tsn5g_ue", "tsn5g_ue.transport", "tsn5g_ue.platform"]
+packages = ["tsn5g_ue", "tsn5g_ue.api", "tsn5g_ue.core", "tsn5g_ue.platform",
+            "tsn5g_ue.transport"]
 
 [tool.setuptools.package-data]
 tsn5g_ue = ["../web/**/*"]
