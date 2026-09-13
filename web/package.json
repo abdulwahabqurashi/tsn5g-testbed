@@ -1,0 +1,6 @@
+{
+  "name": "tsn5g-ue-web",
+  "private": true,
+  "type": "module",
+  "description": "Marker file, not a dependency manifest. There are no dependencies, no build step and no node_modules. Browsers decide module-vs-script from the MIME type and the <script type=\"module\"> tag, but Node decides from this field — so without it, `node --check` and the unit checks in scripts/ treat every .js file as CommonJS and reject `import`. Node is used here as a parser and test runner only."
+}

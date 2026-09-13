@@ -1,0 +1,9 @@
+{
+  "healthy": false,
+  "checks": {
+    "modem": false,
+    "transport": false,
+    "gptp": true
+  },
+  "state": "idle"
+}

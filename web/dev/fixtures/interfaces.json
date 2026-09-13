@@ -1,0 +1,74 @@
+{
+  "interfaces": [
+    {
+      "name": "enp10s0",
+      "kind": "ethernet",
+      "state": "down",
+      "carrier": false,
+      "mac": "2c:94:64:09:fb:fb",
+      "speed": null,
+      "mtu": "1500",
+      "ipv4": null
+    },
+    {
+      "name": "enp3s0",
+      "kind": "ethernet",
+      "state": "up",
+      "carrier": true,
+      "mac": "2c:94:64:07:12:22",
+      "speed": "1000 Mb/s",
+      "mtu": "1500",
+      "ipv4": "10.5.4.111/21"
+    },
+    {
+      "name": "enp4s0",
+      "kind": "ethernet",
+      "state": "up",
+      "carrier": true,
+      "mac": "2c:94:64:07:12:23",
+      "speed": "1000 Mb/s",
+      "mtu": "1500",
+      "ipv4": "169.254.1.1/16"
+    },
+    {
+      "name": "enp7s0",
+      "kind": "ethernet",
+      "state": "down",
+      "carrier": false,
+      "mac": "2c:94:64:07:12:24",
+      "speed": null,
+      "mtu": "1500",
+      "ipv4": null
+    },
+    {
+      "name": "enp8s0",
+      "kind": "ethernet",
+      "state": "down",
+      "carrier": false,
+      "mac": "2c:94:64:07:12:25",
+      "speed": null,
+      "mtu": "1500",
+      "ipv4": null
+    },
+    {
+      "name": "enp9s0",
+      "kind": "ethernet",
+      "state": "down",
+      "carrier": false,
+      "mac": "2c:94:64:09:fb:fa",
+      "speed": null,
+      "mtu": "1500",
+      "ipv4": null
+    },
+    {
+      "name": "wwan0",
+      "kind": "modem",
+      "state": "down",
+      "carrier": false,
+      "mac": "",
+      "speed": null,
+      "mtu": "1400",
+      "ipv4": "10.45.0.6/30"
+    }
+  ]
+}

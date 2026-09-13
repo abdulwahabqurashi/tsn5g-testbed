@@ -1,0 +1,264 @@
+{
+  "profiles": [
+    {
+      "name": "default-3slot",
+      "description": "3-slot TAS: 200us CONTROL(Q7) | 300us HP(Q4) | 500us BE(all)",
+      "cycle_ns": 1000000,
+      "guard_band": false,
+      "slots": [
+        [
+          128,
+          200000
+        ],
+        [
+          16,
+          300000
+        ],
+        [
+          255,
+          500000
+        ]
+      ]
+    },
+    {
+      "name": "p7p4-p7p0",
+      "description": "5-slot: 524us (P7+P4) | 100us all | 376us (P7+P0), guard-band on",
+      "cycle_ns": 1000000,
+      "guard_band": true,
+      "slots": [
+        [
+          144,
+          262000
+        ],
+        [
+          144,
+          262000
+        ],
+        [
+          255,
+          100000
+        ],
+        [
+          129,
+          262000
+        ],
+        [
+          129,
+          114000
+        ]
+      ]
+    },
+    {
+      "name": "all-open",
+      "description": "Single slot 1ms, all queues open (baseline / no Qbv effect)",
+      "cycle_ns": 1000000,
+      "guard_band": false,
+      "slots": [
+        [
+          255,
+          1000000
+        ]
+      ]
+    },
+    {
+      "name": "ctrl-priority",
+      "description": "50/50 split: 500us CONTROL(Q7) | 500us others(all except Q7)",
+      "cycle_ns": 1000000,
+      "guard_band": true,
+      "slots": [
+        [
+          128,
+          500000
+        ],
+        [
+          127,
+          500000
+        ]
+      ]
+    },
+    {
+      "name": "ctrl-starvation",
+      "description": "Stress: 900us CONTROL(Q7) | 100us rest. Demonstrates isolation",
+      "cycle_ns": 1000000,
+      "guard_band": true,
+      "slots": [
+        [
+          128,
+          900000
+        ],
+        [
+          127,
+          100000
+        ]
+      ]
+    },
+    {
+      "name": "urllc-5qi82",
+      "description": "5QI-82 aligned: 150us CTRL | 30us guard | 320us HP | 500us all",
+      "cycle_ns": 1000000,
+      "guard_band": true,
+      "slots": [
+        [
+          128,
+          150000
+        ],
+        [
+          0,
+          30000
+        ],
+        [
+          16,
+          320000
+        ],
+        [
+          255,
+          500000
+        ]
+      ]
+    },
+    {
+      "name": "guard-banded-3slot",
+      "description": "3-slot with 30us guards: 170us CTRL | g | 270us HP | g | 500us all",
+      "cycle_ns": 1000000,
+      "guard_band": true,
+      "slots": [
+        [
+          128,
+          170000
+        ],
+        [
+          0,
+          30000
+        ],
+        [
+          16,
+          270000
+        ],
+        [
+          0,
+          30000
+        ],
+        [
+          255,
+          500000
+        ]
+      ]
+    },
+    {
+      "name": "short-500us",
+      "description": "500us cycle: 100us CTRL | 30us guard | 150us HP | 220us all",
+      "cycle_ns": 500000,
+      "guard_band": true,
+      "slots": [
+        [
+          128,
+          100000
+        ],
+        [
+          0,
+          30000
+        ],
+        [
+          16,
+          150000
+        ],
+        [
+          255,
+          220000
+        ]
+      ]
+    },
+    {
+      "name": "iso-motion-250us",
+      "description": "250us cycle: 50us CTRL | 20us guard | 80us HP | 100us all",
+      "cycle_ns": 250000,
+      "guard_band": true,
+      "slots": [
+        [
+          128,
+          50000
+        ],
+        [
+          0,
+          20000
+        ],
+        [
+          16,
+          80000
+        ],
+        [
+          255,
+          100000
+        ]
+      ]
+    },
+    {
+      "name": "cycle-2ms",
+      "description": "2ms cycle: 300us CTRL | 30us guard | 600us HP | 1070us all",
+      "cycle_ns": 2000000,
+      "guard_band": true,
+      "slots": [
+        [
+          128,
+          300000
+        ],
+        [
+          0,
+          30000
+        ],
+        [
+          16,
+          600000
+        ],
+        [
+          255,
+          1070000
+        ]
+      ]
+    },
+    {
+      "name": "cycle-3ms",
+      "description": "3ms cycle: 450us CTRL | 30us guard | 900us HP | 1620us all",
+      "cycle_ns": 3000000,
+      "guard_band": true,
+      "slots": [
+        [
+          128,
+          450000
+        ],
+        [
+          0,
+          30000
+        ],
+        [
+          16,
+          900000
+        ],
+        [
+          255,
+          1620000
+        ]
+      ]
+    },
+    {
+      "name": "long-4ms",
+      "description": "4ms cycle (video-heavy, HW-max): 500us CTRL | 1500us HP | 2000us all",
+      "cycle_ns": 4000000,
+      "guard_band": true,
+      "slots": [
+        [
+          128,
+          500000
+        ],
+        [
+          16,
+          1500000
+        ],
+        [
+          255,
+          2000000
+        ]
+      ]
+    }
+  ]
+}

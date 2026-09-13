@@ -1,82 +1,68 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="en" data-theme="auto" data-density="desktop">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
   <title>TSN-5G UE Console</title>
-  <link rel="stylesheet" href="css/style.css" />
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/style.css">
+  <script>
+    /* Applied before first paint so the kiosk never flashes white on boot.
+       Duplicated from ui/tokens.js on purpose: a module is deferred, and by
+       the time it runs the wrong background has already been shown. */
+    try {
+      var r = document.documentElement;
+      r.dataset.theme = localStorage.getItem("tsn5g.theme") || "auto";
+      r.dataset.density = localStorage.getItem("tsn5g.density") || "desktop";
+    } catch (e) { /* private mode */ }
+  </script>
 </head>
 <body>
   <div class="app">
-    <!-- Sidebar -->
     <aside class="sidebar">
       <div class="brand">
         <div class="brand-logo">5G</div>
         <div>
-          <div class="brand-name">TSN&nbsp;Console</div>
-          <div class="brand-sub">UE · Device-Side</div>
+          <div class="brand-name">TSN-5G UE</div>
+          <div class="brand-sub">Console</div>
         </div>
       </div>
-      <div class="nav-cap">Overview</div>
-      <nav class="nav" id="nav">
-        <button class="nav-item active" data-view="dashboard"><span class="ic" data-i="grid"></span> Dashboard</button>
-        <button class="nav-item" data-view="setup"><span class="ic" data-i="bolt"></span> Guided Setup</button>
-        <button class="nav-item" data-view="speedtest"><span class="ic" data-i="speed"></span> Speed Test</button>
-        <div class="nav-cap">Configuration</div>
-        <button class="nav-item" data-view="network"><span class="ic" data-i="eth"></span> Network</button>
-        <button class="nav-item" data-view="transport"><span class="ic" data-i="swap"></span> Transport</button>
-        <button class="nav-item" data-view="switch"><span class="ic" data-i="chip"></span> TSN Switch</button>
-        <button class="nav-item" data-view="gptp"><span class="ic" data-i="clock"></span> Time Sync</button>
-        <div class="nav-cap">System</div>
-        <button class="nav-item" data-view="diagnostics"><span class="ic" data-i="pulse"></span> Diagnostics</button>
-      </nav>
+
+      <!-- Generated from app/routes.js. Do not hand-edit. -->
+      <nav class="nav" id="nav" aria-label="Main"></nav>
+
       <div class="sidebar-foot">
-        <div class="conn-pill is-idle" id="conn-pill"><span class="dot"></span><span id="conn-label">…</span></div>
-        <div class="ver" id="app-ver">v0.1.0</div>
+        <div class="conn-pill" id="conn-badge" title="connection">
+          <span class="dot idle"></span><span>Connecting…</span>
+        </div>
+        <div class="ver" id="app-version"></div>
       </div>
     </aside>
 
-    <!-- Main -->
     <main class="main">
       <header class="topbar">
         <h1 id="view-title">Dashboard</h1>
-        <div class="search">
-          <span class="mag">⌕</span>
-          <input type="text" placeholder="Search settings, streams, ports…" id="search" />
-        </div>
-        <div class="topbar-right">
-          <label class="switch" title="Show demo data">
-            <input type="checkbox" id="demo-toggle" />
-            <span class="track"></span> Demo data
-          </label>
-          <div class="health-badge is-idle" id="health-badge"><span class="dot"></span><span class="label">Connecting…</span></div>
-          <button class="btn ghost" id="refresh-btn" title="Refresh">⟳</button>
-        </div>
+        <div class="topbar-right" id="topbar-controls"></div>
       </header>
-      <section class="content" id="content"><!-- active view --></section>
+      <section class="content" id="content"></section>
     </main>
   </div>
 
-  <div class="drawer-scrim" id="drawer-scrim" hidden></div>
+  <div class="drawer-scrim" id="drawer-scrim" hidden onclick="document.getElementById('drawer').hidden=true;this.hidden=true"></div>
   <aside class="drawer" id="drawer" hidden>
-    <div class="drawer-head"><h2 id="drawer-title">Panel</h2><button class="btn ghost" id="drawer-close">✕</button></div>
+    <div class="drawer-head">
+      <h2 id="drawer-title">Details</h2>
+      <button class="btn ghost" type="button" aria-label="Close"
+              onclick="document.getElementById('drawer').hidden=true;document.getElementById('drawer-scrim').hidden=true">✕</button>
+    </div>
     <div class="drawer-body" id="drawer-body"></div>
   </aside>
+
+  <div id="modal-host" hidden></div>
   <div class="toast" id="toast" hidden></div>
 
-  <script src="js/api.js"></script>
-  <script src="js/charts.js"></script>
-  <script src="js/qbveditor.js"></script>
-  <script src="js/mock.js"></script>
-  <script src="js/icons.js"></script>
-  <script src="js/views/dashboard.js"></script>
-  <script src="js/views/setup.js"></script>
-  <script src="js/views/speedtest.js"></script>
-  <script src="js/views/network.js"></script>
-  <script src="js/views/transport.js"></script>
-  <script src="js/views/switch.js"></script>
-  <script src="js/views/gptp.js"></script>
-  <script src="js/views/diagnostics.js"></script>
-  <script src="js/app.js"></script>
+  <script type="module" src="js/main.js"></script>
 </body>
 </html>

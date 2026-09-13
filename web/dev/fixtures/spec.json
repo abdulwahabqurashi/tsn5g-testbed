@@ -1,0 +1,300 @@
+{
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/api/config",
+      "params": [],
+      "summary": "Effective configuration."
+    },
+    {
+      "method": "PUT",
+      "path": "/api/config",
+      "params": [],
+      "summary": "Patch and persist configuration."
+    },
+    {
+      "method": "POST",
+      "path": "/api/connect",
+      "params": [],
+      "summary": "Run the full attach sequence: modem -> transport -> gptp."
+    },
+    {
+      "method": "GET",
+      "path": "/api/debug/commands",
+      "params": [],
+      "summary": "Every command the daemon ran: argv, exit code, timing, output heads."
+    },
+    {
+      "method": "POST",
+      "path": "/api/disconnect",
+      "params": [],
+      "summary": "Tear down gptp, TAS, transport and the modem attach."
+    },
+    {
+      "method": "GET",
+      "path": "/api/discovery",
+      "params": [],
+      "summary": "Detected modem ports, NICs and platform."
+    },
+    {
+      "method": "GET",
+      "path": "/api/events",
+      "params": [],
+      "summary": "SSE stream. ?topics=job,signal,log&last_id=N"
+    },
+    {
+      "method": "GET",
+      "path": "/api/events/stats",
+      "params": [],
+      "summary": "Bus depth and subscriber count \u2014 for debugging the stream itself."
+    },
+    {
+      "method": "POST",
+      "path": "/api/gptp/start",
+      "params": [],
+      "summary": "Start ptp4l (and phc2sys if present) on the timestamping NIC."
+    },
+    {
+      "method": "POST",
+      "path": "/api/gptp/stop",
+      "params": [],
+      "summary": "Stop ptp4l."
+    },
+    {
+      "method": "GET",
+      "path": "/api/health",
+      "params": [],
+      "summary": "Per-subsystem health checks."
+    },
+    {
+      "method": "GET",
+      "path": "/api/interfaces",
+      "params": [],
+      "summary": "Physical and virtual NICs with state, addresses and counters."
+    },
+    {
+      "method": "POST",
+      "path": "/api/interfaces/config",
+      "params": [],
+      "summary": "Set an interface to dhcp / static / down."
+    },
+    {
+      "method": "GET",
+      "path": "/api/jobs",
+      "params": [],
+      "summary": "Recent jobs, newest first."
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/jobs/{id}",
+      "params": [
+        "id"
+      ],
+      "summary": "Cancel a running job, or stop a long-lived one. Same operation."
+    },
+    {
+      "method": "GET",
+      "path": "/api/jobs/{id}",
+      "params": [
+        "id"
+      ],
+      "summary": "One job, including its step timeline and progress lines."
+    },
+    {
+      "method": "GET",
+      "path": "/api/jobs/{id}/log",
+      "params": [
+        "id"
+      ],
+      "summary": "Progress lines, for a client that wants to poll rather than stream."
+    },
+    {
+      "method": "GET",
+      "path": "/api/logs",
+      "params": [],
+      "summary": "Recent log records from the in-process ring."
+    },
+    {
+      "method": "GET",
+      "path": "/api/logs/journal",
+      "params": [],
+      "summary": "journalctl tail, for what happened before this process started."
+    },
+    {
+      "method": "GET",
+      "path": "/api/logs/level",
+      "params": [],
+      "summary": "Effective log levels."
+    },
+    {
+      "method": "PUT",
+      "path": "/api/logs/level",
+      "params": [],
+      "summary": "Change a log level at runtime \u2014 no restart, no config edit."
+    },
+    {
+      "method": "POST",
+      "path": "/api/modem/check",
+      "params": [],
+      "summary": "Non-destructive probe: SIM, operator, registration, signal."
+    },
+    {
+      "method": "GET",
+      "path": "/api/setup/state",
+      "params": [],
+      "summary": "Per-step completion, so the wizard survives a page refresh."
+    },
+    {
+      "method": "GET",
+      "path": "/api/spec",
+      "params": [],
+      "summary": "The route table this process actually serves."
+    },
+    {
+      "method": "GET",
+      "path": "/api/speedtest/result",
+      "params": [],
+      "summary": "Current or last result, including live per-second samples."
+    },
+    {
+      "method": "POST",
+      "path": "/api/speedtest/run",
+      "params": [],
+      "summary": "Start a speed test against the configured server."
+    },
+    {
+      "method": "GET",
+      "path": "/api/stats",
+      "params": [],
+      "summary": "Interface counters and rates, plus the link latency probe."
+    },
+    {
+      "method": "GET",
+      "path": "/api/status",
+      "params": [],
+      "summary": "Controller snapshot: state, step, modem, transport, gptp, tas."
+    },
+    {
+      "method": "POST",
+      "path": "/api/switch/apply",
+      "params": [],
+      "summary": "Apply a preset, or a custom gate list when `slots` is present."
+    },
+    {
+      "method": "POST",
+      "path": "/api/switch/disable",
+      "params": [],
+      "summary": "Turn Qbv off on the given ports."
+    },
+    {
+      "method": "GET",
+      "path": "/api/switch/profiles",
+      "params": [],
+      "summary": "Named Qbv presets."
+    },
+    {
+      "method": "GET",
+      "path": "/api/switch/status",
+      "params": [],
+      "summary": "Reachability and current Qbv state."
+    },
+    {
+      "method": "POST",
+      "path": "/api/tas/apply",
+      "params": [],
+      "summary": "Apply a gate schedule. dry_run returns the tc command only."
+    },
+    {
+      "method": "POST",
+      "path": "/api/tas/clear",
+      "params": [],
+      "summary": "Remove the taprio qdisc."
+    },
+    {
+      "method": "GET",
+      "path": "/api/tas/profiles",
+      "params": [],
+      "summary": "Named Qbv schedules, shared with the switch."
+    },
+    {
+      "method": "POST",
+      "path": "/api/transport/start",
+      "params": [],
+      "summary": "Attach the modem and build the VXLAN/Ethernet data path."
+    },
+    {
+      "method": "POST",
+      "path": "/api/transport/stop",
+      "params": [],
+      "summary": "Tear the data path down."
+    },
+    {
+      "method": "GET",
+      "path": "/api/version",
+      "params": [],
+      "summary": "Build identity \u2014 the UI showed a hard-coded version before this."
+    },
+    {
+      "method": "POST",
+      "path": "/api/wifi/connect",
+      "params": [],
+      "summary": "Join a network. Runs as a job \u2014 nmcli can take tens of seconds."
+    },
+    {
+      "method": "GET",
+      "path": "/api/wifi/scan",
+      "params": [],
+      "summary": "Nearby networks."
+    }
+  ],
+  "job_kinds": {
+    "bearer.connect": {
+      "lane": "bearer",
+      "cancellable": true,
+      "confirm": false,
+      "explain": "bearer.connect requires confirmation"
+    },
+    "bearer.disconnect": {
+      "lane": "bearer",
+      "cancellable": true,
+      "confirm": false,
+      "explain": "bearer.disconnect requires confirmation"
+    },
+    "modem.check": {
+      "lane": "modem",
+      "cancellable": true,
+      "confirm": false,
+      "explain": "modem.check requires confirmation"
+    },
+    "net.transport_start": {
+      "lane": "net",
+      "cancellable": true,
+      "confirm": false,
+      "explain": "net.transport_start requires confirmation"
+    },
+    "net.gptp_start": {
+      "lane": "net",
+      "cancellable": true,
+      "confirm": false,
+      "explain": "net.gptp_start requires confirmation"
+    },
+    "net.wifi_connect": {
+      "lane": "net",
+      "cancellable": true,
+      "confirm": false,
+      "explain": "net.wifi_connect requires confirmation"
+    }
+  },
+  "topics": [
+    "state",
+    "job",
+    "modem",
+    "signal",
+    "bearer",
+    "stats",
+    "iperf",
+    "log",
+    "audit",
+    "alert"
+  ]
+}

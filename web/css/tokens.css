@@ -1,0 +1,227 @@
+/*
+ * Design tokens — the single source of truth for colour, spacing and sizing.
+ *
+ * Everything else reads from here, including the charts: ui/tokens.js pulls
+ * these values via getComputedStyle so SVG strokes and CSS agree by
+ * construction. Before this, charts.js carried its own hex palette that
+ * duplicated these values, which meant dark mode would have silently drawn
+ * light-theme charts.
+ *
+ * Rule: no hex literal outside this file. scripts/lint-js.sh enforces it.
+ *
+ * Two axes:
+ *   [data-theme]    auto | light | dark      — appearance
+ *   [data-density]  desktop | kiosk          — hit-target and type scale
+ */
+
+:root {
+  /* -- surfaces -- */
+  --bg: #f5f7fa;
+  --panel: #ffffff;
+  --panel-2: #fbfcfe;
+  --line: #e9ecf1;
+  --line-2: #f0f2f6;
+  --line-strong: #cfd6e0;
+
+  /* -- text -- */
+  --ink: #1b1f27;
+  --soft: #68707d;
+  --faint: #9aa1ab;
+  --on-accent: #ffffff;
+
+  /* -- semantic -- */
+  --blue: #0b74ff;
+  --blue-soft: #eaf2ff;
+  --blue-hover: #0a63da;
+  --green: #16b364;
+  --green-soft: #e7f7ee;
+  --green-ink: #0f8a4d;
+  --amber: #f59e0b;
+  --amber-soft: #fef3e2;
+  --amber-ink: #b26a00;
+  --red: #ef4444;
+  --red-soft: #fdecec;
+  --red-ink: #c0332a;
+  --red-line: #f3c4c0;
+  --purple: #7c5cff;
+
+  /* -- charts: read by ui/tokens.js, never hard-coded in JS -- */
+  --chart-1: #0b74ff;
+  --chart-2: #16b364;
+  --chart-3: #f59e0b;
+  --chart-4: #7c5cff;
+  --chart-5: #ef4444;
+  --chart-6: #0ea5a5;
+  --chart-grid: #e9ecf1;
+  --chart-track: #eef1f6;
+  --chart-ink: #1b1f27;
+  --chart-soft: #68707d;
+
+  /* -- TSN traffic classes, so the same VLAN is the same colour everywhere -- */
+  --class-control: #7c5cff;
+  --class-hpvideo: #0b74ff;
+  --class-be: #9aa1ab;
+
+  /* -- terminal surfaces (log panes stay dark in both themes) -- */
+  --term-bg: #0f1420;
+  --term-ink: #cbd3df;
+
+  /* -- shape -- */
+  --radius: 14px;
+  --radius-sm: 10px;
+  --radius-xs: 7px;
+  --shadow: 0 1px 2px rgba(20, 24, 32, .04), 0 6px 20px rgba(20, 24, 32, .05);
+  --shadow-lg: 0 12px 40px rgba(20, 24, 32, .14);
+  --scrim: rgba(15, 20, 32, .34);
+
+  /* -- sizing. --tap is the minimum interactive dimension. -- */
+  --tap: 34px;
+  --control-h: 38px;
+  --fs-body: 14px;
+  --fs-small: 12.5px;
+  --sidebar-w: 236px;
+
+  /* -- type -- */
+  --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+             "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/*
+ * Dark theme. Applied when explicitly chosen, or when "auto" meets a dark OS.
+ * Kept as one block referenced twice rather than duplicated, so the two paths
+ * cannot drift.
+ */
+:root[data-theme="dark"],
+:root[data-theme="auto"] {
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="auto"] {
+    color-scheme: dark;
+
+    --bg: #0e1116;
+    --panel: #161a21;
+    --panel-2: #1b2029;
+    --line: #232a35;
+    --line-2: #1c2229;
+    --line-strong: #333d4c;
+
+    --ink: #e6eaf2;
+    --soft: #98a3b3;
+    --faint: #6b7685;
+
+    --blue: #3b8cff;
+    --blue-soft: #14243d;
+    --blue-hover: #529bff;
+    --green-soft: #10291d;
+    --green-ink: #46d98a;
+    --amber-soft: #2a2113;
+    --amber-ink: #f0b542;
+    --red-soft: #2c1618;
+    --red-ink: #ff7b73;
+    --red-line: #5a2b2b;
+
+    --chart-1: #3b8cff;
+    --chart-2: #2ecc80;
+    --chart-3: #f5b342;
+    --chart-4: #9d83ff;
+    --chart-5: #ff6b6b;
+    --chart-6: #2bc4c4;
+    --chart-grid: #232a35;
+    --chart-track: #1c2229;
+    --chart-ink: #e6eaf2;
+    --chart-soft: #98a3b3;
+
+    --class-control: #9d83ff;
+    --class-hpvideo: #3b8cff;
+    --class-be: #6b7685;
+
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 20px rgba(0, 0, 0, .28);
+    --shadow-lg: 0 12px 40px rgba(0, 0, 0, .5);
+    --scrim: rgba(0, 0, 0, .6);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #0e1116;
+  --panel: #161a21;
+  --panel-2: #1b2029;
+  --line: #232a35;
+  --line-2: #1c2229;
+  --line-strong: #333d4c;
+
+  --ink: #e6eaf2;
+  --soft: #98a3b3;
+  --faint: #6b7685;
+
+  --blue: #3b8cff;
+  --blue-soft: #14243d;
+  --blue-hover: #529bff;
+  --green-soft: #10291d;
+  --green-ink: #46d98a;
+  --amber-soft: #2a2113;
+  --amber-ink: #f0b542;
+  --red-soft: #2c1618;
+  --red-ink: #ff7b73;
+  --red-line: #5a2b2b;
+
+  --chart-1: #3b8cff;
+  --chart-2: #2ecc80;
+  --chart-3: #f5b342;
+  --chart-4: #9d83ff;
+  --chart-5: #ff6b6b;
+  --chart-6: #2bc4c4;
+  --chart-grid: #232a35;
+  --chart-track: #1c2229;
+  --chart-ink: #e6eaf2;
+  --chart-soft: #98a3b3;
+
+  --class-control: #9d83ff;
+  --class-hpvideo: #3b8cff;
+  --class-be: #6b7685;
+
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 20px rgba(0, 0, 0, .28);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, .5);
+  --scrim: rgba(0, 0, 0, .6);
+}
+
+/*
+ * Kiosk density. The console runs full-screen on a panel with no keyboard and
+ * no mouse, so nothing may rely on hover and nothing may be smaller than a
+ * fingertip.
+ */
+:root[data-density="kiosk"] {
+  --tap: 56px;
+  --control-h: 52px;
+  --fs-body: 16px;
+  --fs-small: 14px;
+  --radius: 16px;
+  --radius-sm: 12px;
+  --sidebar-w: 280px;
+}
+
+:root[data-density="kiosk"] .btn,
+:root[data-density="kiosk"] .nav-item,
+:root[data-density="kiosk"] .seg button,
+:root[data-density="kiosk"] select,
+:root[data-density="kiosk"] input {
+  min-height: var(--tap);
+}
+
+/* Touch has no hover state; a tap that only highlights reads as a dead control. */
+:root[data-density="kiosk"] .btn:active,
+:root[data-density="kiosk"] .nav-item:active {
+  filter: brightness(.94);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+}

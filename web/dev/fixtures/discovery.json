@@ -1,0 +1,54 @@
+{
+  "modem": {
+    "serial": null,
+    "qmi": "/dev/cdc-wdm0",
+    "model": null,
+    "candidates": [
+      "/dev/ttyUSB0",
+      "/dev/ttyUSB1",
+      "/dev/ttyUSB2",
+      "/dev/ttyUSB3"
+    ],
+    "wwan": "wwan0",
+    "present": true
+  },
+  "tsn_nics": [
+    {
+      "interface": "enp10s0",
+      "hw_timestamping": true,
+      "carrier": 0
+    },
+    {
+      "interface": "enp3s0",
+      "hw_timestamping": true,
+      "carrier": 1
+    },
+    {
+      "interface": "enp4s0",
+      "hw_timestamping": true,
+      "carrier": 1
+    },
+    {
+      "interface": "enp7s0",
+      "hw_timestamping": true,
+      "carrier": 0
+    },
+    {
+      "interface": "enp8s0",
+      "hw_timestamping": true,
+      "carrier": 0
+    },
+    {
+      "interface": "enp9s0",
+      "hw_timestamping": true,
+      "carrier": 0
+    }
+  ],
+  "inferred_role": {},
+  "linux": true,
+  "platform": {
+    "platform": "linux",
+    "service_manager": "systemd",
+    "package_manager": "apt"
+  }
+}

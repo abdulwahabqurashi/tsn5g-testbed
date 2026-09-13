@@ -1,0 +1,386 @@
+{
+  "jobs": [
+    {
+      "id": "j-b71dbb",
+      "kind": "net.transport_start",
+      "lane": "net",
+      "state": "failed",
+      "error": "no modem AT port found (probed /dev/ttyUSB*, /dev/ttyACM*)",
+      "created": 1789280512.4999585,
+      "started": 1789280512.5001113,
+      "finished": 1789280512.507014,
+      "persisted": true,
+      "progress": {
+        "pct": 0,
+        "step": null,
+        "message": null
+      },
+      "steps": [],
+      "params": {
+        "mode": null,
+        "dnn": null,
+        "wired_nics": null,
+        "role": null,
+        "vlan_map": null
+      },
+      "result": null
+    },
+    {
+      "id": "j-c74630",
+      "kind": "net.transport_start",
+      "lane": "net",
+      "state": "failed",
+      "error": "no modem AT port found (probed /dev/ttyUSB*, /dev/ttyACM*)",
+      "created": 1789280388.120476,
+      "started": 1789280388.120564,
+      "finished": 1789280388.1261313,
+      "persisted": true,
+      "progress": {
+        "pct": 0,
+        "step": null,
+        "message": null
+      },
+      "steps": [],
+      "params": {
+        "mode": null,
+        "dnn": null,
+        "wired_nics": null,
+        "role": null,
+        "vlan_map": null
+      },
+      "result": null
+    },
+    {
+      "id": "j-8c6a81",
+      "kind": "modem.check",
+      "lane": "modem",
+      "state": "failed",
+      "error": "no modem AT port found (probed /dev/ttyUSB*, /dev/ttyACM*)",
+      "created": 1789280388.1115665,
+      "started": 1789280388.1116378,
+      "finished": 1789280388.116979,
+      "persisted": true,
+      "progress": {
+        "pct": 0,
+        "step": null,
+        "message": null
+      },
+      "steps": [],
+      "params": {},
+      "result": null
+    },
+    {
+      "id": "j-d28b01",
+      "kind": "net.gptp_start",
+      "lane": "net",
+      "state": "succeeded",
+      "error": null,
+      "created": 1789280388.0977552,
+      "started": 1789280388.097838,
+      "finished": 1789280388.0979674,
+      "persisted": true,
+      "progress": {
+        "pct": 100,
+        "step": null,
+        "message": null
+      },
+      "steps": [],
+      "params": {
+        "iface": null
+      },
+      "result": {
+        "running": false,
+        "locked": false,
+        "offset_ns": null,
+        "path_delay_ns": null,
+        "grandmaster": null,
+        "enabled": false,
+        "interfaces": []
+      }
+    },
+    {
+      "id": "j-675997",
+      "kind": "bearer.connect",
+      "lane": "bearer",
+      "state": "failed",
+      "error": "no modem AT port found (probed /dev/ttyUSB*, /dev/ttyACM*)",
+      "created": 1789280388.0940669,
+      "started": 1789280388.0942998,
+      "finished": 1789280388.0993307,
+      "persisted": true,
+      "progress": {
+        "pct": 0,
+        "step": null,
+        "message": null
+      },
+      "steps": [],
+      "params": {
+        "mode": null,
+        "dnn": null,
+        "wired_nics": null,
+        "role": null
+      },
+      "result": null
+    },
+    {
+      "id": "j-12c66d",
+      "kind": "net.transport_start",
+      "lane": "net",
+      "state": "failed",
+      "error": "no modem AT port found (probed /dev/ttyUSB*, /dev/ttyACM*)",
+      "created": 1789280337.161714,
+      "started": 1789280337.1621432,
+      "finished": 1789280337.1698859,
+      "persisted": true,
+      "progress": {
+        "pct": 0,
+        "step": null,
+        "message": null
+      },
+      "steps": [],
+      "params": {
+        "mode": null,
+        "dnn": null,
+        "wired_nics": null,
+        "role": null,
+        "vlan_map": null
+      },
+      "result": null
+    },
+    {
+      "id": "j-f4027e",
+      "kind": "modem.check",
+      "lane": "modem",
+      "state": "failed",
+      "error": "no modem AT port found (probed /dev/ttyUSB*, /dev/ttyACM*)",
+      "created": 1789280337.060585,
+      "started": 1789280337.0608597,
+      "finished": 1789280337.0685976,
+      "persisted": true,
+      "progress": {
+        "pct": 0,
+        "step": null,
+        "message": null
+      },
+      "steps": [],
+      "params": {},
+      "result": null
+    },
+    {
+      "id": "j-e3fb74",
+      "kind": "net.gptp_start",
+      "lane": "net",
+      "state": "succeeded",
+      "error": null,
+      "created": 1789280337.0194278,
+      "started": 1789280337.0195096,
+      "finished": 1789280337.0196772,
+      "persisted": true,
+      "progress": {
+        "pct": 100,
+        "step": null,
+        "message": null
+      },
+      "steps": [],
+      "params": {
+        "iface": null
+      },
+      "result": {
+        "running": false,
+        "locked": false,
+        "offset_ns": null,
+        "path_delay_ns": null,
+        "grandmaster": null,
+        "enabled": false,
+        "interfaces": []
+      }
+    },
+    {
+      "id": "j-eea6e2",
+      "kind": "bearer.disconnect",
+      "lane": "bearer",
+      "state": "succeeded",
+      "error": null,
+      "created": 1789280337.0016723,
+      "started": 1789280337.001942,
+      "finished": 1789280337.0130525,
+      "persisted": true,
+      "progress": {
+        "pct": 100,
+        "step": null,
+        "message": null
+      },
+      "steps": [],
+      "params": {},
+      "result": {
+        "ok": true
+      }
+    },
+    {
+      "id": "j-825fe1",
+      "kind": "bearer.connect",
+      "lane": "bearer",
+      "state": "failed",
+      "error": "no modem AT port found (probed /dev/ttyUSB*, /dev/ttyACM*)",
+      "created": 1789280336.9930906,
+      "started": 1789280336.9932294,
+      "finished": 1789280336.9982636,
+      "persisted": true,
+      "progress": {
+        "pct": 0,
+        "step": null,
+        "message": null
+      },
+      "steps": [],
+      "params": {
+        "mode": null,
+        "dnn": null,
+        "wired_nics": null,
+        "role": null
+      },
+      "result": null
+    },
+    {
+      "id": "j-ca422a",
+      "kind": "net.transport_start",
+      "lane": "net",
+      "state": "failed",
+      "error": "no modem AT port found (probed /dev/ttyUSB*, /dev/ttyACM*)",
+      "created": 1789280297.979302,
+      "started": 1789280297.979417,
+      "finished": 1789280297.9838722,
+      "persisted": true,
+      "progress": {
+        "pct": 0,
+        "step": null,
+        "message": null
+      },
+      "steps": [],
+      "params": {
+        "mode": null,
+        "dnn": null,
+        "wired_nics": null,
+        "role": null,
+        "vlan_map": null
+      },
+      "result": null
+    },
+    {
+      "id": "j-727bac",
+      "kind": "modem.check",
+      "lane": "modem",
+      "state": "failed",
+      "error": "no modem AT port found (probed /dev/ttyUSB*, /dev/ttyACM*)",
+      "created": 1789280297.9263308,
+      "started": 1789280297.9264507,
+      "finished": 1789280297.9371917,
+      "persisted": true,
+      "progress": {
+        "pct": 0,
+        "step": null,
+        "message": null
+      },
+      "steps": [],
+      "params": {},
+      "result": null
+    },
+    {
+      "id": "j-36eafa",
+      "kind": "net.gptp_start",
+      "lane": "net",
+      "state": "succeeded",
+      "error": null,
+      "created": 1789280297.9111729,
+      "started": 1789280297.9112587,
+      "finished": 1789280297.9113674,
+      "persisted": true,
+      "progress": {
+        "pct": 100,
+        "step": null,
+        "message": null
+      },
+      "steps": [],
+      "params": {
+        "iface": null
+      },
+      "result": {
+        "running": false,
+        "locked": false,
+        "offset_ns": null,
+        "path_delay_ns": null,
+        "grandmaster": null,
+        "enabled": false,
+        "interfaces": []
+      }
+    },
+    {
+      "id": "j-0206f4",
+      "kind": "bearer.connect",
+      "lane": "bearer",
+      "state": "failed",
+      "error": "no modem AT port found (probed /dev/ttyUSB*, /dev/ttyACM*)",
+      "created": 1789280297.9048367,
+      "started": 1789280297.904924,
+      "finished": 1789280297.9107368,
+      "persisted": true,
+      "progress": {
+        "pct": 0,
+        "step": null,
+        "message": null
+      },
+      "steps": [],
+      "params": {
+        "mode": null,
+        "dnn": null,
+        "wired_nics": null,
+        "role": null
+      },
+      "result": null
+    },
+    {
+      "id": "j-27f25e",
+      "kind": "modem.check",
+      "lane": "modem",
+      "state": "failed",
+      "error": "no modem AT port found (probed /dev/ttyUSB*, /dev/ttyACM*)",
+      "created": 1789280047.6152554,
+      "started": 1789280047.6163425,
+      "finished": 1789280047.6277864,
+      "persisted": true,
+      "progress": {
+        "pct": 0,
+        "step": null,
+        "message": null
+      },
+      "steps": [],
+      "params": {},
+      "result": null
+    },
+    {
+      "id": "j-ad334b",
+      "kind": "modem.check",
+      "lane": "modem",
+      "state": "failed",
+      "error": "no modem AT port found (probed /dev/ttyUSB*, /dev/ttyACM*)",
+      "created": 1789279996.48813,
+      "started": 1789279996.488387,
+      "finished": 1789279996.4945238,
+      "persisted": true,
+      "progress": {
+        "pct": 0,
+        "step": null,
+        "message": null
+      },
+      "steps": [],
+      "params": {},
+      "result": null
+    }
+  ],
+  "active": {
+    "modem": null,
+    "bearer": null,
+    "perf": null,
+    "switch": null,
+    "net": null
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "lines": [
+    {
+      "id": 1,
+      "ts": 1789285348.4348729,
+      "level": "INFO",
+      "levelno": 20,
+      "logger": "tsn5g-ue.store",
+      "message": "history at /tmp/claude-1000/-home-amrc/af80d53f-886f-4252-be02-d1a4b40693de/scratchpad/state/tsn5g.db"
+    },
+    {
+      "id": 2,
+      "ts": 1789285348.435058,
+      "level": "INFO",
+      "levelno": 20,
+      "logger": "tsn5g-ue.platform",
+      "message": "platform: linux (service=systemd pkg=apt)"
+    },
+    {
+      "id": 3,
+      "ts": 1789285348.435143,
+      "level": "INFO",
+      "levelno": 20,
+      "logger": "tsn5g-ue",
+      "message": "============================================================"
+    },
+    {
+      "id": 4,
+      "ts": 1789285348.435165,
+      "level": "INFO",
+      "levelno": 20,
+      "logger": "tsn5g-ue",
+      "message": "TSN-5G UE Console v0.1.0"
+    },
+    {
+      "id": 5,
+      "ts": 1789285348.4351804,
+      "level": "INFO",
+      "levelno": 20,
+      "logger": "tsn5g-ue",
+      "message": "============================================================"
+    },
+    {
+      "id": 6,
+      "ts": 1789285348.4375334,
+      "level": "INFO",
+      "levelno": 20,
+      "logger": "tsn5g-ue.api",
+      "message": "UI + API on http://0.0.0.0:8080/ (40 routes)"
+    },
+    {
+      "id": 7,
+      "ts": 1789285348.4375775,
+      "level": "INFO",
+      "levelno": 20,
+      "logger": "tsn5g-ue.controller",
+      "message": "controller ready \u2014 state=idle"
+    },
+    {
+      "id": 8,
+      "ts": 1789285354.6710954,
+      "level": "INFO",
+      "levelno": 20,
+      "logger": "tsn5g-ue.modem",
+      "message": "modem port detection: at=None qmi=/dev/cdc-wdm0 model=None"
+    }
+  ],
+  "last_id": 8
+}
