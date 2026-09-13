@@ -62,6 +62,14 @@ export const ROUTES = [
     load: () => legacyView("network"),
   },
   {
+    name: "routing",
+    path: "/routing",
+    title: "Routing",
+    icon: "route",
+    section: "network",
+    load: () => import("../views/routing.js"),
+  },
+  {
     name: "throughput",
     path: "/throughput",
     title: "Throughput",

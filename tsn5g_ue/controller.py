@@ -24,7 +24,9 @@ from .modem.bus import ModemBus
 from .modem.power import PowerControl
 from .modem.qmi import QmiClient
 from .modem.signal import SignalPoller
-from .netiface import NetIfaceManager
+from .net.bearer import BearerManager
+from .net.routing import RoutingManager
+from .net.iface import NetIfaceManager
 from .platform import get_platform
 from .speedtest import SpeedTest
 from .switch import SwitchManager
@@ -58,6 +60,15 @@ class Controller:
         self.power = PowerControl(self.bus, events=events)
         self.signal_poller = SignalPoller(self.modem, self.bus, events=events,
                                           store=store)
+        self.bearer = BearerManager(config, self.qmi, modem=self.modem,
+                                    events=events)
+        # One owner for the data call. Without this the legacy connect path
+        # would re-apply the /30 form over the bearer's /32.
+        self.modem.bearer = self.bearer
+        self.routing = RoutingManager()
+        # The UE address changes on every data call, so policy routing has to
+        # be put back afterwards or it silently stops matching.
+        self.bearer.on_change = self._on_bearer_change
         self.identity = None
         self.transport = None
         self.gptp = GptpManager(config.gptp, config.hw_timestamp_interfaces())
@@ -74,6 +85,17 @@ class Controller:
         self.state = C.STATE_IDLE
         logger.info("controller ready — state=%s", self.state)
         self.resume()
+
+    def _on_bearer_change(self, state):
+        """Called after every successful bring-up."""
+        try:
+            if self.routing.status().get("applied"):
+                logger.info("bearer address is now %s — re-applying routing",
+                            state.get("ipv4"))
+                self.routing.reapply_after_bearer_change()
+        except Exception as exc:            # noqa: BLE001
+            logger.warning("could not re-apply routing after the bearer "
+                           "changed: %s", exc)
 
     def resume(self):
         last = self.state_store.load()

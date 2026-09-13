@@ -65,6 +65,10 @@ class Daemon:
             link_target=core_ip,
             link_iface=self.config.modem.get("wwan_interface", "wwan0"))
 
+        # B5: the latency probe was frozen at boot because nothing ever
+        # called set_link_target(). The bearer retargets it on every bring-up.
+        self.controller.bearer.stats = self.stats
+
         self.api_server = None
         self._running = False
         self._last_state = None

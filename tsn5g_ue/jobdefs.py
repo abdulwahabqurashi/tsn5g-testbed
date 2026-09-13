@@ -223,5 +223,48 @@ def register_all(jobs, controller):
     jobs.register("modem.at", modem_at, LANE_MODEM, confirm=True,
                   explain="This AT command can drop the link.")
 
+    # -- the data call ------------------------------------------------------
+    def bearer_up(ctx):
+        p = ctx.params
+        return controller.bearer.up(
+            ctx=ctx, apn=p.get("apn"), ip_type=p.get("ip_type", 4),
+            extra_routes=p.get("routes"),
+            default_route=bool(p.get("default_route")),
+            write_dns=bool(p.get("dns")))
+
+    def bearer_down(ctx):
+        return controller.bearer.down(ctx=ctx)
+
+    def bearer_cycle(ctx):
+        ctx.log("stopping the current call")
+        controller.bearer.down(ctx=None)
+        ctx.log("starting a new one")
+        # The SMF hands out a fresh address every call, so anything pinned to
+        # the old one is now stale. Phase 4's routing profile re-applies here.
+        return controller.bearer.up(ctx=ctx, apn=ctx.params.get("apn"))
+
+    jobs.register("bearer.up", bearer_up, LANE_BEARER)
+    jobs.register("bearer.down", bearer_down, LANE_BEARER, confirm=True,
+                  explain="Stops the 5G data call. Anything using the link "
+                          "loses it, and the next call gets a different "
+                          "address.")
+    jobs.register("bearer.cycle", bearer_cycle, LANE_BEARER, confirm=True,
+                  explain="Stops and restarts the data call. The UE address "
+                          "will change, so policy routing pinned to the old "
+                          "one becomes stale.")
+
+    # -- policy routing -----------------------------------------------------
+    def routing_apply(ctx):
+        return controller.routing.apply(ctx.params.get("spec") or ctx.params,
+                                        ctx=ctx)
+
+    def routing_clear(ctx):
+        return controller.routing.clear(ctx=ctx)
+
+    jobs.register("net.routing_apply", routing_apply, LANE_NET)
+    jobs.register("net.routing_clear", routing_clear, LANE_NET, confirm=True,
+                  explain="Removes the policy-routing rules. Traffic that was "
+                          "going over 5G returns to the wired path.")
+
     logger.debug("registered %d job kinds", len(jobs.kinds()))
     return jobs

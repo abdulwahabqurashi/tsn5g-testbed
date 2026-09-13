@@ -216,6 +216,23 @@ export function createApi({ base = "", timeout = 8000, fetchImpl, onCall } = {})
     },
 
     // -- network ---------------------------------------------------------
+    bearer: {
+      get: (o) => GET("/api/bearer", o),
+      up: (body, o) => POST("/api/bearer/up", body, o),
+      down: (body, o) => POST("/api/bearer/down", body, o),
+      cycle: (body, o) => POST("/api/bearer/cycle", body, o),
+    },
+
+    routing: {
+      get: (o) => GET("/api/net/routing-profile", o),
+      apply: (body, o) => PUT("/api/net/routing-profile", body, o),
+      clear: (body, o) => request("DELETE", "/api/net/routing-profile",
+                                  { ...o, body: body ?? {} }),
+      verify: (body, o) => POST("/api/net/routing-profile/verify", body,
+                                { ...o, timeout: 20000 }),
+      routes: (o) => GET("/api/net/routes", o),
+    },
+
     iface: {
       list: (o) => GET("/api/interfaces", o),
       config: (body, o) => POST("/api/interfaces/config", body, o),

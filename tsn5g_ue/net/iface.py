@@ -12,7 +12,7 @@ import logging
 import os
 import re
 
-from . import utils
+from .. import utils
 
 logger = logging.getLogger("tsn5g-ue.netiface")
 

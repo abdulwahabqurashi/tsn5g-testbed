@@ -288,12 +288,13 @@ class ApiServer:
 
 def build_router():
     """Assemble the route table from every routes_* module."""
-    from . import (routes_connect, routes_jobs, routes_logs, routes_modem,
-                   routes_net, routes_perf, routes_signal, routes_system,
-                   routes_tsn)
+    from . import (routes_bearer, routes_connect, routes_jobs, routes_logs,
+                   routes_modem,
+                   routes_net, routes_perf, routes_routing, routes_signal,
+                   routes_system, routes_tsn)
     router = Router()
     for mod in (routes_system, routes_jobs, routes_logs, routes_connect,
-                routes_modem, routes_signal, routes_net, routes_perf,
-                routes_tsn):
+                routes_bearer, routes_modem, routes_signal, routes_net,
+                routes_routing, routes_perf, routes_tsn):
         mod.register(router)
     return router

@@ -57,6 +57,22 @@ Cmnd_Alias TSN5G_RUN = \
     /usr/bin/python3 -m tsn5g_ue -c /home/amrc/camera_application/tsn5g-ue-app/config/tsn5g-ue.di1200.yaml -l debug, \
     /usr/bin/python3 -m tsn5g_ue -c /home/amrc/camera_application/tsn5g-ue-app/config/tsn5g-ue.di1200.yaml -l info
 
+# --- The reference bring-up script -----------------------------------------
+# Fixed path, fixed verbs. Added because driving the bearer by hand otherwise
+# needs a password, and a password prompt does not survive a non-interactive
+# shell — which made the script appear to fail silently rather than ask.
+#
+# Honest note on the blast radius: the script is writable by this user, so a
+# NOPASSWD rule on it is strictly a path to running arbitrary code as root.
+# It grants nothing the user does not already have (they are in the sudo
+# group); it only removes the password prompt for these verbs. Delete this
+# block if you would rather type the password each time.
+Cmnd_Alias TSN5G_BRINGUP = \
+    /home/amrc/camera_application/ue_qmi_up.sh up, \
+    /home/amrc/camera_application/ue_qmi_up.sh down, \
+    /home/amrc/camera_application/ue_qmi_up.sh status, \
+    /home/amrc/camera_application/at.py *
+
 # --- The device plane ------------------------------------------------------
 # Wide in arguments, bounded in kind: modem control, interface and routing
 # configuration, time sync, packet capture. This is the set the daemon itself
@@ -79,4 +95,5 @@ Cmnd_Alias TSN5G_DEV = \
     /usr/sbin/phc2sys *, \
     /usr/bin/tcpdump *
 
-amrc ALL=(root) NOPASSWD: TSN5G_SVC, TSN5G_DEPLOY, TSN5G_RUN, TSN5G_DEV
+amrc ALL=(root) NOPASSWD: TSN5G_SVC, TSN5G_DEPLOY, TSN5G_RUN, TSN5G_DEV,\
+                          TSN5G_BRINGUP

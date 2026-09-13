@@ -146,6 +146,9 @@ class ModemManager:
             from .bus import ModemBus
             bus = ModemBus(config=self.cfg)
         self.bus = bus
+        # Set by the controller once the BearerManager exists. When present it
+        # owns the data call; see _attach_ip.
+        self.bearer = None
 
         self.registered = False
         self.pdu_active = False
@@ -347,12 +350,34 @@ class ModemManager:
         utils.ip("link", "set", self.wwan, "up")
 
     def _attach_ip(self, dnn):
-        # The context definition is identical on every OS (serial AT); the data
-        # session bring-up (QMI framing, session start, DHCP, default route) is
-        # OS-specific and delegated to the platform provider — uqmi/netifd on
-        # OpenWRT, qmicli+dhclient on generic Linux.
+        """Define the PDP context, then hand the data call to the bearer.
+
+        The context definition is plain AT and identical everywhere. The data
+        call is NOT delegated to the platform provider any more on Linux:
+        platform.bring_up_ip_pdu derives the prefix from the QMI netmask and
+        produces 10.45.0.6/30 with no gateway or UE-pool route, which is bug
+        B3. wwan0 is point-to-point raw-IP with no on-link subnet, so that form
+        reaches the core only by accident.
+
+        Worse, both paths were live at once: a bearer.up job would apply the
+        correct /32 form and a bearer.connect job eight seconds later would
+        overwrite it with the /30 one. One owner now — BearerManager, which is
+        a transcription of docs/reference/ue_qmi_up.sh.
+
+        The platform provider is still used on OpenWRT, where netifd owns
+        addressing and this code should not.
+        """
         self._at(f'AT+CGDCONT={self.cid},"IPV4V6","{dnn}"')
-        result = self.platform.bring_up_ip_pdu(self.wwan, dnn, self.qmi_device, cid=self.cid)
+
+        if self.bearer is not None:
+            result = self.bearer.up(apn=dnn)
+            self.ipv4 = result.get("ipv4") or self._read_ipv4()
+            logger.info("IP PDU up via bearer (ip=%s gw=%s mtu=%s)",
+                        self.ipv4, result.get("gateway"), result.get("mtu"))
+            return
+
+        result = self.platform.bring_up_ip_pdu(self.wwan, dnn, self.qmi_device,
+                                               cid=self.cid)
         self.ipv4 = result.get("ipv4") or self._read_ipv4()
         logger.info("IP PDU up via %s (ip=%s)", result.get("method"), self.ipv4)
 
