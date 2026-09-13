@@ -311,6 +311,7 @@ class JobManager:
             logger.info("job %s succeeded: %s", job.id, job.kind)
         except JobCancelled as exc:
             ctx.fail_step("cancelled")
+            ctx.log("cancelled")
             with job._lock:                      # noqa: SLF001
                 job.state = STATE_CANCELLED
                 job.error = str(exc)
@@ -318,6 +319,10 @@ class JobManager:
             logger.info("job %s cancelled: %s", job.id, job.kind)
         except Exception as exc:                 # noqa: BLE001
             ctx.fail_step(str(exc))
+            # Always record the reason here. A job that fails before its first
+            # step would otherwise have an empty log, leaving the UI showing a
+            # failure with no explanation.
+            ctx.log(f"FAILED: {exc}")
             with job._lock:                      # noqa: SLF001
                 job.state = STATE_FAILED
                 job.error = str(exc)

@@ -56,6 +56,12 @@ class _StepWatcher:
 
     def __enter__(self):
         self._ctx.plan(self._steps)
+        # Open the first step up front rather than waiting for the poll to
+        # notice it. transport_start can fail on a missing AT port in under a
+        # millisecond, and attributing that to "modem" is the whole point.
+        if self._steps:
+            self._seen = self._steps[0]
+            self._ctx.step(self._steps[0], _STEP_DETAIL.get(self._steps[0]))
         self._thread = threading.Thread(target=self._run, name="step-watch",
                                         daemon=True)
         self._thread.start()
