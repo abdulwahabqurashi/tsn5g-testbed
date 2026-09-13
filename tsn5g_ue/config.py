@@ -24,12 +24,23 @@ class ConfigError(ValueError):
 class Config:
     """Parsed configuration, with defaults applied and light validation."""
 
-    def __init__(self, path):
+    def __init__(self, path, overlay_path=None):
         self.path = path
         if not os.path.exists(path):
             raise ConfigError(f"config file not found: {path}")
         with open(path, "r", encoding="utf-8") as fh:
             self._raw = yaml.safe_load(fh) or {}
+
+        # UI changes live here, not in the operator's YAML.
+        if overlay_path is None:
+            state_file = self._raw.get("state_file") or "/var/lib/tsn5g-ue/state.json"
+            overlay_path = os.path.join(os.path.dirname(state_file) or ".",
+                                        "settings.json")
+        self._overlay = SettingsOverlay(overlay_path)
+        self._raw = self._overlay.apply_to(self._raw)
+        if self._overlay.data:
+            logger.info("settings overlay applied from %s (%d key(s))",
+                        overlay_path, len(self._overlay.data))
         self._validate()
 
     # -- sections -----------------------------------------------------------
@@ -98,13 +109,29 @@ class Config:
         # TODO: validate vlan_map entries (unique vlan/vni/dstport), switch.ports spec.
 
     def as_dict(self):
-        """The raw config dict (for GET /api/config)."""
+        """The effective config: the YAML with the overlay merged over it."""
         return self._raw
 
-    def update(self, patch):
+    def sources(self):
+        """Which top-level keys came from the overlay rather than the file.
+
+        Surfaced at GET /api/config so the UI can show what has been changed
+        from the operator's file without reading both.
         """
-        Shallow-merge a patch into the config and persist to disk.
-        Used by PUT /api/config and by connect() to remember the chosen transport.
+        return {k: ("overlay" if k in self._overlay.data else "file")
+                for k in self._raw}
+
+    def update(self, patch):
+        """Merge a patch and persist it — to the overlay, never the YAML.
+
+        The YAML is the operator's file: hand-maintained, commented, and the
+        thing they read to understand the deployment. yaml.safe_dump destroys
+        every comment and reflows the key order, so a single UI toggle used to
+        silently rewrite it. config/tsn5g-ue.di1200.yaml is visibly a
+        machine-rewritten copy of the example for exactly this reason.
+
+        Changes go to a JSON overlay in the state directory instead, layered
+        over the file at load. The file stays exactly as written.
         """
         for key, value in patch.items():
             if isinstance(value, dict) and isinstance(self._raw.get(key), dict):
@@ -112,14 +139,66 @@ class Config:
             else:
                 self._raw[key] = value
         self._validate()
+        self._overlay.merge(patch)
+        logger.info("config overlay updated (%s); %s is untouched",
+                    ", ".join(patch), self.path)
+
+
+class SettingsOverlay:
+    """UI-mutable settings, layered over the operator's YAML.
+
+    Kept separate so the YAML can stay hand-maintained and commented. Only
+    keys actually changed appear here, which also makes it obvious at a glance
+    what has been altered from the shipped configuration.
+    """
+
+    def __init__(self, path):
+        self.path = path
+        self.data = self._load()
+
+    def _load(self):
+        try:
+            with open(self.path, "r", encoding="utf-8") as fh:
+                return json.load(fh)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return {}
+        except OSError as exc:
+            logger.warning("could not read the settings overlay: %s", exc)
+            return {}
+
+    def merge(self, patch):
+        for key, value in patch.items():
+            if isinstance(value, dict) and isinstance(self.data.get(key), dict):
+                self.data[key].update(value)
+            else:
+                self.data[key] = value
         self._save()
 
+    def clear(self):
+        self.data = {}
+        try:
+            os.unlink(self.path)
+        except OSError:
+            pass
+
+    def apply_to(self, raw):
+        """Merge the overlay over a freshly loaded config."""
+        for key, value in self.data.items():
+            if isinstance(value, dict) and isinstance(raw.get(key), dict):
+                raw[key].update(value)
+            else:
+                raw[key] = value
+        return raw
+
     def _save(self):
-        tmp = f"{self.path}.tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            yaml.safe_dump(self._raw, fh, sort_keys=False)
-        os.replace(tmp, self.path)
-        logger.info("config saved to %s", self.path)
+        try:
+            os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
+            tmp = f"{self.path}.tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(self.data, fh, indent=2, sort_keys=True)
+            os.replace(tmp, self.path)
+        except OSError as exc:
+            logger.warning("could not persist the settings overlay: %s", exc)
 
 
 class StateStore:

@@ -15,7 +15,6 @@ import { createStream } from "./core/stream.js";
 import { toast } from "./core/dialog.js";
 import { h } from "./core/dom.js";
 import { invalidate as invalidatePalette, applyAppearance, storedAppearance } from "./ui/tokens.js";
-import { bindShim, installShim } from "./compat/shim.js";
 import { createAppStore } from "./app/state.js";
 import { ROUTES, routeByName } from "./app/routes.js";
 import { mountShell, setActiveNav } from "./app/shell.js";
@@ -81,10 +80,6 @@ async function boot() {
     const path = target.startsWith("/") ? target : routeByName(target).path;
     router.navigate(path);
   };
-
-  // Legacy bridge. Deleted in Phase 7 along with web/compat/.
-  await installShim();
-  bindShim({ api, store, navigate, qbvEditor: window.TSN?.qbvEditor });
 
   mountShell({ store, navigate });
 

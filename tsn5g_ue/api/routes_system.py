@@ -36,8 +36,19 @@ def register(router):
 
     @router.get("/api/config")
     def config_get(req):
-        """Effective configuration."""
-        return req.ctx.controller.config.as_dict()
+        """Effective configuration, and where each top-level key came from.
+
+        `_source` marks keys that have been changed through the UI. Those live
+        in a JSON overlay; the operator's YAML is never rewritten, because
+        yaml.safe_dump destroys comments and reflows key order.
+        """
+        cfg = req.ctx.controller.config
+        out = dict(cfg.as_dict())
+        try:
+            out["_source"] = cfg.sources()
+        except AttributeError:
+            pass
+        return out
 
     @router.put("/api/config")
     def config_put(req):
@@ -77,6 +88,60 @@ def register(router):
         sse.stream(req.http, req.ctx.bus, req.ctx.sse,
                    topics=topics, last_id=last_id)
         return RAW
+
+    @router.get("/api/debug/snapshot")
+    def snapshot(req):
+        """One blob to attach to a bug report. Replaces diag.sh.
+
+        Everything a question about this rig usually needs: controller state,
+        the modem and bearer, the routing tables, and the recent log — so the
+        first reply is an answer rather than "can you also send...".
+        """
+        from .. import utils
+        c = req.ctx.controller
+        out = {"generated": time.time(), "version": __version__}
+
+        def safe(name, fn):
+            try:
+                out[name] = fn()
+            except Exception as exc:        # noqa: BLE001 — a snapshot must
+                out[name] = {"error": str(exc)}   # never fail as a whole
+
+        safe("status", c.snapshot)
+        safe("health", c.health)
+        safe("discovery", c.discovery.summary)
+        safe("modem", lambda: c.modem.get_status() if c.modem else None)
+        safe("bus", lambda: c.bus.status() if getattr(c, "bus", None) else None)
+        safe("bearer", lambda: c.bearer.status() if getattr(c, "bearer", None) else None)
+        safe("radio", lambda: c.radio.state() if getattr(c, "radio", None) else None)
+        safe("radio_prefs", lambda: c.radio.prefs() if getattr(c, "radio", None) else None)
+        safe("routing", lambda: c.routing.status() if getattr(c, "routing", None) else None)
+        safe("interfaces", c.interfaces)
+        safe("jobs", lambda: [j.as_dict(include_log=False)
+                              for j in req.ctx.jobs.list(limit=20)])
+        safe("stats", lambda: req.ctx.stats.get_stats() if req.ctx.stats else None)
+
+        cmds = {
+            "ip_addr": ["ip", "-br", "addr"],
+            "ip_route": ["ip", "route", "show"],
+            "ip_rule": ["ip", "rule", "show"],
+            "iptables_mangle": ["iptables", "-t", "mangle", "-S"],
+            "iptables_nat": ["iptables", "-t", "nat", "-S"],
+        }
+        shell = {}
+        for name, cmd in cmds.items():
+            try:
+                proc = utils.run(cmd, check=False, timeout=10)
+                shell[name] = (proc.stdout or proc.stderr or "").strip().splitlines()
+            except Exception as exc:        # noqa: BLE001
+                shell[name] = [f"error: {exc}"]
+        out["shell"] = shell
+
+        if req.ctx.logbuf is not None:
+            out["log"] = req.ctx.logbuf.tail(limit=200)
+        if req.ctx.audit is not None:
+            out["commands"] = req.ctx.audit.tail(limit=60)
+        return out
 
     @router.get("/api/events/stats")
     def events_stats(req):

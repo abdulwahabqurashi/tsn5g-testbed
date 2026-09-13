@@ -32,21 +32,9 @@ while IFS= read -r f; do
         bad "$rel"
         printf '%s\n' "$err" | sed 's/^/        /'
     fi
-done < <(find "$WEB/js" -name "*.js" -not -path "*/views/*" | sort)
+done < <(find "$WEB/js" -name "*.js" | sort)
 
-# The legacy views are still classic scripts (IIFEs), not modules.
-while IFS= read -r f; do
-    rel="${f#"$WEB"/}"
-    [ "$(basename "$f")" = "logs.js" ] && continue   # logs.js is a real module
-    if ! err=$(node --check "$f" 2>&1); then
-        bad "$rel"
-        printf '%s\n' "$err" | sed 's/^/        /'
-    fi
-done < <(find "$WEB/js/views" "$WEB/js/qbveditor.js" -name "*.js" 2>/dev/null | sort)
-
-if ! err=$(node --check --input-type=module < "$WEB/js/views/logs.js" 2>&1); then
-    bad "js/views/logs.js"; printf '%s\n' "$err" | sed 's/^/        /'
-fi
+# Every view is a module now; web/compat/ was deleted in Phase 7.
 
 # ----------------------------------------------------------- 2. import paths
 echo "[2/3] import resolution"
@@ -91,23 +79,22 @@ rule "innerHTML outside the compat shim" \
 # eight of these; core/async.js is what replaced them.
 rule "empty catch block (use asyncSection or surface the error)" \
      "catch\s*(\([^)]*\))?\s*\{\s*\}" \
-     --include="*.js" "$WEB/js/core" "$WEB/js/ui" "$WEB/js/app" "$WEB/js/views/logs.js"
+     --include="*.js" "$WEB/js/core" "$WEB/js/ui" "$WEB/js/app" "$WEB/js/views"
 
 # Views must use view.interval(), which is torn down on navigation. A raw
 # setInterval is how the speed-test poll leaked forever.
 rule "setInterval outside js/core (use view.interval)" \
      "setInterval\(" \
-     --include="*.js" "$WEB/js/app" "$WEB/js/ui" "$WEB/js/views/logs.js"
+     --include="*.js" "$WEB/js/app" "$WEB/js/ui" "$WEB/js/views"
 
 # Every endpoint path lives in core/api.js, which is what makes
 # scripts/check-endpoints.py able to verify the UI against a running box.
 rule "fetch() outside core/api.js" \
      "[^.a-zA-Z]fetch\(" \
-     --include="*.js" "$WEB/js/app" "$WEB/js/ui" "$WEB/js/views/logs.js"
+     --include="*.js" "$WEB/js/app" "$WEB/js/ui" "$WEB/js/views"
 
 # Colour belongs in tokens.css or dark mode silently breaks.
 hits=$(grep -rnE "#[0-9a-fA-F]{3,8}\b" "$WEB/js" --include="*.js" \
-       | grep -vE "js/(views|qbveditor)" \
        | grep -vE "^[^:]+:[0-9]+:[[:space:]]*(\*|//|/\*)" || true)
 if [ -n "$hits" ]; then
     bad "hex colour in JS (put it in css/tokens.css)"

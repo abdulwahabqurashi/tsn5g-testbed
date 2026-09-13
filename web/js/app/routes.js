@@ -9,8 +9,6 @@
  * `load()` is a dynamic import, so each view is fetched on first visit.
  */
 
-import { legacyView } from "../compat/legacy-view.js";
-
 export const SECTIONS = [
   { id: "overview", label: "Overview" },
   { id: "radio", label: "Radio" },
@@ -27,7 +25,7 @@ export const ROUTES = [
     title: "Dashboard",
     icon: "grid",
     section: "overview",
-    load: () => legacyView("dashboard"),
+    load: () => import("../views/dashboard.js"),
   },
   {
     name: "connection",
@@ -107,7 +105,7 @@ export const ROUTES = [
     title: "Diagnostics",
     icon: "pulse",
     section: "system",
-    load: () => legacyView("diagnostics"),
+    load: () => import("../views/diagnostics.js"),
   },
   {
     name: "transport",
@@ -115,7 +113,7 @@ export const ROUTES = [
     title: "Transport",
     icon: "swap",
     section: "advanced",
-    load: () => legacyView("transport"),
+    load: () => import("../views/advanced/transport.js"),
   },
   {
     name: "switch",
@@ -123,7 +121,7 @@ export const ROUTES = [
     title: "TSN Switch",
     icon: "sw",
     section: "advanced",
-    load: () => legacyView("switch"),
+    load: () => import("../views/advanced/switch.js"),
   },
   {
     name: "gptp",
@@ -131,7 +129,7 @@ export const ROUTES = [
     title: "Time Sync",
     icon: "clock",
     section: "advanced",
-    load: () => legacyView("gptp"),
+    load: () => import("../views/advanced/gptp.js"),
   },
 ];
 

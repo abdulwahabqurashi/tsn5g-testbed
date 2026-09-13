@@ -226,23 +226,33 @@ def main():
         check("dashboard re-mounted after navigating away and back", cards > 0,
               f"{cards} cards")
 
-        # ---- data actually reached the legacy view -------------------------
-        print("=== legacy view receives live data ===")
+        # ---- data actually reached the view --------------------------------
+        print("=== dashboard receives live data ===")
         check("store has a controller snapshot",
               bool(m.script("return !!window.__tsn.store.get().status;")))
-        # This is the real test of the bridge: headings come from render(), but
-        # values only appear if onData() ran without throwing.
+        # Headings come from mount(); values only appear if the subscriptions
+        # fired and painted without throwing.
         txt = m.wait_for(
             "document.getElementById('content').textContent.length > 300",
-            timeout=20, label="dashboard populated by onData")
-        check("legacy onData populated the cards", bool(txt),
+            timeout=20, label="dashboard painted")
+        check("dashboard subscriptions populated the cards", bool(txt),
               f"{m.script('return document.getElementById(\'content\').textContent.length;')} chars")
+        # The rewrite's reason: an index-based chart drew a dropped sample as a
+        # fast one. Time-based means a gap is a gap.
+        check("throughput chart is time-based",
+              m.script("return !!document.querySelector('#content svg');"))
 
-        # ---- no demo mode anywhere ------------------------------------------
-        print("=== demo mode is gone ===")
-        check("T.demo is pinned false", m.script("return window.TSN.demo;") is False)
+        # ---- no demo mode, and no compat layer -------------------------------
+        print("=== demo mode and the compat shim are gone ===")
         check("no demo toggle in the DOM",
               m.script("return document.querySelectorAll('.switch').length;") == 0)
+        # Phase 7's release gate. The shim exported window.TSN for the legacy
+        # view bodies; nothing should define it now.
+        check("the legacy window.TSN global is gone",
+              m.script("return typeof window.TSN;") == "undefined",
+              "compat/legacy-view.js should be deleted")
+        check("no view is compat-wrapped",
+              m.script("return !!window.__tsn.store.get().ui.route;"))
 
         # ---- theme switching --------------------------------------------------
         print("=== theme ===")
@@ -403,6 +413,119 @@ def main():
         check("continuous loop offered", "Continuous loop" in text)
         check("both generators offered",
               "Link load" in text or "Camera-like" in text)
+
+        # ---- Phase 7: advanced section ------------------------------------
+        print("=== advanced section ===")
+        # The nav is flat: a .nav-cap label followed by its .nav-item buttons.
+        # Walk from the Advanced cap to the next cap and collect what is under it.
+        under = m.script("""
+            const kids = [...document.getElementById('nav').children];
+            const i = kids.findIndex(e => e.classList.contains('nav-cap')
+                                       && e.textContent.trim() === 'Advanced');
+            if (i < 0) return null;
+            const out = [];
+            for (let j = i + 1; j < kids.length; j++) {
+                if (kids[j].classList.contains('nav-cap')) break;
+                out.push(kids[j].dataset.route);
+            }
+            return out;
+        """)
+        check("the TSN views are parked under an Advanced nav section",
+              under == ["transport", "switch", "gptp"],
+              f"found {under}")
+
+        print("=== advanced/transport ===")
+        m.script("window.location.hash = '#/transport';")
+        m.wait_for("window.__tsn.store.get().ui.route === 'transport'",
+                   timeout=15, label="transport route")
+        m.wait_for("document.getElementById('content').textContent.length > 200",
+                   timeout=25, label="transport content")
+        text = m.script("return document.getElementById('content').textContent;")
+        btns = m.script("return [...document.querySelectorAll('.btn')]"
+                        ".map(b => b.textContent.trim());")
+        check("transport view mounted", m.script(CARD_COUNT) >= 2,
+              f"{m.script(CARD_COUNT)} cards")
+        # /api/transport/stop shipped with no caller at all until this phase.
+        check("Stop is wired to /api/transport/stop", "Stop" in btns,
+              f"buttons were {btns}")
+        check("Start is offered too", "Start" in btns)
+        check("the traffic-class map came from the backend",
+              "VLAN" in text or "No traffic classes" in text,
+              "the map used to be a raw JSON textarea")
+
+        print("=== advanced/switch ===")
+        m.script("window.location.hash = '#/switch';")
+        m.wait_for("window.__tsn.store.get().ui.route === 'switch'",
+                   timeout=15, label="switch route")
+        m.wait_for("document.getElementById('content').textContent.length > 200",
+                   timeout=25, label="switch content")
+        text = m.script("return document.getElementById('content').textContent;")
+        btns = m.script("return [...document.querySelectorAll('.btn')]"
+                        ".map(b => b.textContent.trim());")
+        check("switch view mounted", m.script(CARD_COUNT) >= 3,
+              f"{m.script(CARD_COUNT)} cards")
+        # The status panel was `T.demo ? mock() : null`, so on real hardware it
+        # rendered an empty div and /api/switch/status was never called.
+        check("the live-status panel has a real control",
+              "Read from switch" in btns, f"buttons were {btns}")
+        check("status panel is not silently empty",
+              "Read from switch" in text or "Reachable" in text)
+        check("profiles came from the backend, not a duplicated array",
+              m.script("return document.querySelectorAll('select').length;") >= 1)
+        check("gate timeline previews before applying",
+              "Preview CLI" in btns and "Apply" in btns)
+        check("password is marked session-only", "session only" in text,
+              "credentials must never be persisted")
+
+        print("=== advanced/gptp ===")
+        m.script("window.location.hash = '#/gptp';")
+        m.wait_for("window.__tsn.store.get().ui.route === 'gptp'",
+                   timeout=15, label="gptp route")
+        m.wait_for("document.getElementById('content').textContent.length > 150",
+                   timeout=25, label="gptp content")
+        text = m.script("return document.getElementById('content').textContent;")
+        btns = m.script("return [...document.querySelectorAll('.btn')]"
+                        ".map(b => b.textContent.trim());")
+        check("gptp view mounted", m.script(CARD_COUNT) >= 2,
+              f"{m.script(CARD_COUNT)} cards")
+        # This view had zero controls, even though the endpoints always existed
+        # — restarting ptp4l meant going through the setup wizard.
+        check("Start/Stop are wired to /api/gptp/*",
+              "Start" in btns and "Stop" in btns, f"buttons were {btns}")
+        check("servo state is shown", "Servo" in text)
+        check("the hardware-timestamping requirement is explained",
+              "hardware timestamping" in text)
+
+        # ---- Phase 7: diagnostics (the diag.sh successor) ------------------
+        print("=== diagnostics ===")
+        m.script("window.location.hash = '#/diagnostics';")
+        m.wait_for("window.__tsn.store.get().ui.route === 'diagnostics'",
+                   timeout=15, label="diagnostics route")
+        # The static card prose alone clears any textContent threshold, so wait
+        # on the shell panes — they only exist once the snapshot has painted.
+        m.wait_for("document.querySelectorAll('#content pre.log').length > 0",
+                   timeout=45, label="snapshot to arrive and paint")
+        text = m.script("return document.getElementById('content').textContent;")
+        check("diagnostics view mounted", m.script(CARD_COUNT) >= 3,
+              f"{m.script(CARD_COUNT)} cards")
+        check("the snapshot endpoint answered, not a 404",
+              "not found" not in text.lower() and "404" not in text,
+              text[:160])
+        check("it reports the shell commands diag.sh used to run",
+              "ip " in text or "qmicli" in text or "systemctl" in text)
+        check("a copyable snapshot is offered",
+              "Copy" in m.script("return [...document.querySelectorAll('.btn')]"
+                                 ".map(b => b.textContent.trim()).join(' ');")
+              or "Download" in text or "Refresh" in text)
+
+        # ---- Phase 7: config overlay ---------------------------------------
+        print("=== settings overlay ===")
+        srcmap = m.script("""
+            return fetch('/api/config').then(r => r.json())
+                   .then(c => JSON.stringify(c._source || null));
+        """)
+        check("GET /api/config reports where each section came from",
+              srcmap and srcmap != "null", f"_source = {srcmap}")
 
         # ---- console errors ----------------------------------------------------
         print("=== console ===")

@@ -227,6 +227,8 @@ export function createApi({ base = "", timeout = 8000, fetchImpl, onCall } = {})
 
     debug: {
       commands: (query, o) => GET("/api/debug/commands", { ...o, query }),
+      // Gathers a lot; give it room.
+      snapshot: (o) => GET("/api/debug/snapshot", { ...o, timeout: 30000 }),
     },
 
     events: {

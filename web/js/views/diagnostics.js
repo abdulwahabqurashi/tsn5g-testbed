@@ -1,84 +1,142 @@
-/* Diagnostics — latency/jitter trends, per-interface traffic, raw status. */
-(function (T) {
-  const { el } = T.util;
-  const C = T.charts;
+/**
+ * Diagnostics — one page to attach to a bug report.
+ *
+ * Replaces a view whose entire debug surface was JSON.stringify(status) in a
+ * <pre>. The snapshot endpoint gathers what a question about this rig actually
+ * needs — controller state, modem, bearer, routing tables, recent log — so the
+ * first reply is an answer rather than "can you also send...".
+ *
+ * It is the successor to diag.sh, which had to be run over SSH.
+ */
 
-  T.views.diagnostics = {
-    render(container) {
-      const grid = el("div", { class: "grid" }, [
-        el("div", { class: "card col6" }, [
-          el("div", { class: "card-head" }, [el("h3", null, ["Core round-trip (ping)"]),
-            el("span", { class: "hint", id: "d-lat" }, ["—"])]),
-          el("div", { id: "d-lat-chart" }, []),
-        ]),
-        el("div", { class: "card col6" }, [
-          el("div", { class: "card-head" }, [el("h3", null, ["Jitter"]),
-            el("span", { class: "hint", id: "d-jit" }, ["—"])]),
-          el("div", { id: "d-jit-chart" }, []),
-        ]),
-        el("div", { class: "card col12" }, [
-          el("div", { class: "card-head" }, [el("h3", null, ["Interface traffic"])]),
-          el("div", { id: "d-if" }, []),
-        ]),
-        el("div", { class: "card col12" }, [
-          el("div", { class: "card-head" }, [el("h3", null, ["Raw status"])]),
-          el("pre", { class: "log", id: "d-raw" }, ["…"]),
-        ]),
-      ]);
-      container.appendChild(grid);
-      this._d = {
-        lat: grid.querySelector("#d-lat"), jit: grid.querySelector("#d-jit"),
-        latC: grid.querySelector("#d-lat-chart"), jitC: grid.querySelector("#d-jit-chart"),
-        iff: grid.querySelector("#d-if"), raw: grid.querySelector("#d-raw"),
-      };
-    },
-    onData(last) {
-      if (!this._d) return;
-      // Live: real RTT samples to the core from the backend probe; jitter is the
-      // per-sample delta. Demo: sample sine data.
-      let lat, jit, latVal, jitVal;
-      if (T.demo) {
-        const s = T.mock.series(); lat = s.latency; jit = s.jitter;
-        latVal = lat[lat.length - 1]; jitVal = jit[jit.length - 1];
-      } else {
-        const link = (last.stats && last.stats.link) || {};
-        lat = link.samples || [];
-        jit = lat.map((v, i, a) => (i ? Math.abs(v - a[i - 1]) : 0));
-        latVal = link.latency_ms; jitVal = link.jitter_ms;
-      }
-      this._d.lat.textContent = (latVal != null ? latVal.toFixed(1) : "—") + " ms";
-      this._d.jit.textContent = (jitVal != null ? jitVal.toFixed(1) : "—") + " ms";
-      this._d.latC.innerHTML = ""; this._d.latC.appendChild(C.area(lat, { h: 150, color: T.theme.blue }));
-      this._d.jitC.innerHTML = ""; this._d.jitC.appendChild(C.area(jit, { h: 150, color: T.theme.purple }));
+import { ApiError } from "../core/api.js";
+import { defineView } from "../core/component.js";
+import { toast } from "../core/dialog.js";
+import { clear, h } from "../core/dom.js";
+import { clockTime, ms } from "../core/format.js";
+import * as charts from "../ui/charts.js";
+import { palette } from "../ui/tokens.js";
+import { badge, btnRow, button, card, row, table } from "../ui/widgets.js";
 
-      const ifaces = (last.stats && last.stats.interfaces) || {};
-      const names = Object.keys(ifaces);
-      this._d.iff.innerHTML = "";
-      if (!names.length) { this._d.iff.appendChild(el("p", { class: "muted" }, ["No interface stats yet."])); }
-      else {
-        const head = el("tr", null, ["Interface", "RX", "TX", "RX pkts", "TX pkts", "Drops"]
-          .map((h) => el("th", null, [h])));
-        const rows = names.map((n) => {
-          const s = ifaces[n];
-          return el("tr", null, [
-            el("td", null, [el("div", { class: "cell-name" }, [
-              el("span", { class: "cell-icon", style: "background:#0b74ff" }, ["≋"]), n])]),
-            td(bytes(s.rx_bytes)), td(bytes(s.tx_bytes)), td(fmt(s.rx_packets)), td(fmt(s.tx_packets)),
-            el("td", null, [el("span", { class: "badge " + ((s.rx_dropped + s.tx_dropped) ? "amber" : "green") },
-              [String((s.rx_dropped || 0) + (s.tx_dropped || 0))])]),
-          ]);
-        });
-        this._d.iff.appendChild(el("table", { class: "tbl" }, [el("thead", null, [head]), el("tbody", null, rows)]));
+export default defineView({
+  name: "diagnostics",
+
+  async mount(view) {
+    const summaryBody = h("div");
+    const shellBody = h("div");
+    const ifaceBody = h("div");
+
+    view.root.appendChild(h("div", { class: "grid" },
+      h("section", { class: "card col12" },
+        h("div", { class: "card-head" },
+          h("h3", { text: "Snapshot" }),
+          h("span", { class: "hint", text: "everything a bug report needs" })),
+        h("p", { class: "section-hint" },
+          "Gathers controller state, the modem and bearer, the routing tables "
+          + "and the recent log in one call — the successor to diag.sh."),
+        btnRow(
+          button("Refresh", { kind: "primary", onclick: load }),
+          button("Copy all", { onclick: copyAll })),
+        summaryBody),
+      card("Interface counters", { span: "col6" }, ifaceBody),
+      h("section", { class: "card col6" },
+        h("div", { class: "card-head" },
+          h("h3", { text: "Kernel state" }),
+          h("span", { class: "hint", text: "addresses, routes, firewall" })),
+        shellBody)));
+
+    let snapshot = null;
+
+    async function copyAll() {
+      if (!snapshot) { toast("nothing captured yet"); return; }
+      try {
+        await navigator.clipboard.writeText(JSON.stringify(snapshot, null, 2));
+        toast("snapshot copied to the clipboard", "ok");
+      } catch {
+        toast("clipboard unavailable — use GET /api/debug/snapshot", "err");
       }
-      this._d.raw.textContent = JSON.stringify(last.status || {}, null, 2);
-    },
-  };
-  function td(v) { return el("td", { class: "mono" }, [v == null ? "—" : String(v)]); }
-  function fmt(n) { return n == null ? "—" : Number(n).toLocaleString(); }
-  function bytes(b) {
-    if (b == null) return "—";
-    const u = ["B", "KB", "MB", "GB", "TB"]; let i = 0;
-    while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
-    return b.toFixed(1) + " " + u[i];
-  }
-})(window.TSN);
+    }
+
+    function paintSummary(s) {
+      clear(summaryBody);
+      const st = s.status || {};
+      const b = s.bearer || {};
+      const r = s.radio || {};
+      summaryBody.appendChild(h("div", { class: "kpis" },
+        h("div", { class: "kpi" },
+          h("div", { class: "kpi-label", text: "STATE" }),
+          h("div", { class: "kpi-val", text: st.state || "—" })),
+        h("div", { class: "kpi" },
+          h("div", { class: "kpi-label", text: "BEARER" }),
+          h("div", { class: "kpi-val", text: b.ipv4 || "down" })),
+        h("div", { class: "kpi" },
+          h("div", { class: "kpi-label", text: "RAT" }),
+          h("div", { class: "kpi-val", text: r.rat || "—" })),
+        h("div", { class: "kpi" },
+          h("div", { class: "kpi-label", text: "ROUTING" }),
+          h("div", { class: "kpi-val",
+                     text: s.routing?.applied ? "applied" : "none" }))));
+
+      const errs = [];
+      for (const [k, v] of Object.entries(s)) {
+        if (v && typeof v === "object" && v.error) errs.push(`${k}: ${v.error}`);
+      }
+      if (errs.length) {
+        summaryBody.appendChild(h("div", { class: "kpi-label",
+                                           style: { "margin-top": "12px" },
+                                           text: "Collection errors" }));
+        summaryBody.appendChild(h("pre", { class: "log", text: errs.join("\n") }));
+      }
+    }
+
+    function paintShell(shell) {
+      clear(shellBody);
+      for (const [name, lines] of Object.entries(shell || {})) {
+        shellBody.appendChild(h("div", { class: "kpi-label",
+                                         text: name.replace(/_/g, " ") }));
+        shellBody.appendChild(h("pre", { class: "log",
+          style: { "max-height": "130px" },
+          text: (lines || []).join("\n") || "(empty)" }));
+      }
+    }
+
+    function paintInterfaces(state) {
+      const stats = state.stats?.interfaces || {};
+      clear(ifaceBody);
+      const names = Object.keys(stats).sort();
+      if (!names.length) {
+        ifaceBody.appendChild(h("p", { class: "muted" }, "No counters yet."));
+        return;
+      }
+      ifaceBody.appendChild(table(["Interface", "RX/s", "TX/s", "RX drop", "TX drop"],
+        names.map((n) => {
+          const s = stats[n];
+          return [
+            h("span", { class: "mono", text: n }),
+            `${((s.rx_bytes_per_s || 0) * 8 / 1e6).toFixed(2)} Mbit/s`,
+            `${((s.tx_bytes_per_s || 0) * 8 / 1e6).toFixed(2)} Mbit/s`,
+            s.rx_dropped ?? "—", s.tx_dropped ?? "—",
+          ];
+        })));
+    }
+
+    async function load() {
+      clear(summaryBody);
+      summaryBody.appendChild(h("div", { class: "skeleton-wrap" },
+        h("div", { class: "skeleton-row" }), h("div", { class: "skeleton-row" })));
+      try {
+        snapshot = await view.api.debug.snapshot({ signal: view.signal });
+        paintSummary(snapshot);
+        paintShell(snapshot.shell);
+      } catch (err) {
+        if (err instanceof ApiError && err.isAborted) return;
+        clear(summaryBody);
+        summaryBody.appendChild(h("p", { class: "muted", text: err.message }));
+      }
+    }
+
+    view.sub((s) => s.stats, () => paintInterfaces(view.store.get()));
+    paintInterfaces(view.store.get());
+    await load();
+  },
+});

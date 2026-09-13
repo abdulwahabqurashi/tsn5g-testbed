@@ -13,6 +13,9 @@ import logging
 import os
 
 from . import constants as C
+import re
+
+from . import utils
 from .utils import is_linux
 
 logger = logging.getLogger("tsn5g-ue.discovery")
@@ -75,13 +78,55 @@ class Discovery:
 
     # -- VXLAN role inference ----------------------------------------------
     def infer_role(self):
+        """Work out which traffic class this UE is carrying.
+
+        The UE's address inside the SMF pool identifies it, and the config's
+        vlan_map says which class each UE handles. Matching the two is how the
+        wizard pre-selects the right role instead of asking the operator to
+        remember it.
+
+        Returns {} when there is nothing to go on — no address yet, or no
+        vlan_map — which is a real answer, not a failure.
         """
-        For VXLAN mode, map the modem's assigned 10.45.0.x IP to a VLAN/role using
-        the configured vlan_map (mirrors tsn-scripts/ds_tt.sh auto-detect).
-        Returns {'ip', 'vlan', 'role'} or empty dict. TODO: read live wwan IP.
-        """
-        # TODO(port ds_tt.sh): read the wwan interface IPv4 and look up vlan_map.
-        return {}
+        vlan_map = (self.config.vxlan or {}).get("vlan_map") or []
+        if not vlan_map:
+            return {}
+
+        wwan = self.config.modem.get("wwan_interface", "wwan0")
+        addr = None
+        try:
+            proc = utils.run(["ip", "-4", "-o", "addr", "show", wwan],
+                             check=False, timeout=10)
+            m = re.search(r"inet\s+(\d+\.\d+\.\d+\.\d+)", proc.stdout or "")
+            addr = m.group(1) if m else None
+        except Exception:                   # noqa: BLE001
+            addr = None
+        if not addr:
+            return {"reason": f"{wwan} has no address yet"}
+
+        # The last octet of the UE address selects the entry, which is the
+        # convention the vlan_map is written against.
+        try:
+            last = int(addr.rsplit(".", 1)[1])
+        except (IndexError, ValueError):
+            return {"reason": f"could not read the host part of {addr}"}
+
+        entry = None
+        for i, item in enumerate(vlan_map):
+            if item.get("ue") == last or item.get("ue_host") == last:
+                entry = item
+                break
+        if entry is None and len(vlan_map) == 1:
+            entry = vlan_map[0]              # only one class: no ambiguity
+        if entry is None:
+            idx = (last - 2) % len(vlan_map)  # pool starts at .2
+            entry = vlan_map[idx]
+            return {"role": entry.get("role"), "vlan": entry.get("vlan"),
+                    "ipv4": addr, "confidence": "guessed",
+                    "reason": "no explicit ue mapping; derived from the host "
+                              "part of the address"}
+        return {"role": entry.get("role"), "vlan": entry.get("vlan"),
+                "ipv4": addr, "confidence": "matched"}
 
     def summary(self):
         """Everything the wizard needs in one call (GET /api/discovery)."""
