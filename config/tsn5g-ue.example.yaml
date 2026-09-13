@@ -18,10 +18,17 @@ platform: auto
 # 5G modem (Quectel RM520N-GL)
 # ---------------------------------------------------------------------------
 modem:
-  device: /dev/ttyUSB2       # AT-command serial port (auto-detected if omitted)
+  # device: /dev/ttyUSB3     # AT serial port. LEAVE COMMENTED OUT: the port
+                             # number moves between boots (seen at ttyUSB2 and
+                             # ttyUSB3 on the same machine on the same day), so
+                             # a pinned value fails after a reboot. The daemon
+                             # probes for it and re-probes if the modem
+                             # re-enumerates.
   wwan_interface: wwan0      # WWAN data interface
   qmi_device: /dev/cdc-wdm0  # QMI control device (for qmicli data-format / raw-ip)
-  dnn: tsn                   # Data Network Name for the TSN session
+  dnn: internet              # APN / Data Network Name. CHANGE THIS — it must
+                             # match what your 5G core expects. Wrong DNN is the
+                             # single most common reason the data call fails.
   cid: 1                     # PDP context id
   baud_rate: 115200
 
@@ -35,7 +42,9 @@ transport:
 
 # VXLAN overlay settings (used when transport.mode == vxlan)
 vxlan:
-  core_ip: 10.45.0.1         # NW-TT / core VXLAN remote endpoint
+  core_ip: 10.45.0.1         # CHANGE THIS — the address of your 5G core / UPF
+                             # on the UE subnet. Also used as the default iperf
+                             # server and the reachability probe target.
   mtu: 1450                  # headroom for VXLAN+UDP+IP+outer-Ethernet over a 1500 underlay
   # Per-traffic-class overlay map. VNI defaults to the VLAN id.
   # role is a friendly label surfaced in the UI.
@@ -58,15 +67,18 @@ bridge:
   ageing_time: 0             # static forwarding
 
 # Wired TSN NICs to bridge onto the 5G link (auto-detected; confirm in the wizard)
-tsn_nics:
-  - interface: enp2s0
-    hw_timestamping: true
+# Leave empty to let the daemon probe (ethtool -T). List them only to override.
+tsn_nics: []
+#  - interface: enp2s0
+#    hw_timestamping: true
 
 # ---------------------------------------------------------------------------
 # gPTP / IEEE 802.1AS (ptp4l transparent clock + phc2sys)
 # ---------------------------------------------------------------------------
 gptp:
-  enabled: true
+  enabled: false             # needs a NIC with hardware timestamping AND a
+                             # grandmaster on the wire. Turn on once you have
+                             # both; the Time Sync view shows what was found.
   time_domain_number: 0
   transport_specific: 1      # 1 = 802.1AS
   priority1: 255             # never become grandmaster
@@ -96,6 +108,14 @@ api:
   enabled: true
   host: 0.0.0.0
   port: 8080
+
+# ---------------------------------------------------------------------------
+# Throughput testing (iperf3)
+# ---------------------------------------------------------------------------
+speedtest:
+  server: 10.45.0.1          # where `iperf3 -s` runs. Defaults to vxlan.core_ip.
+  duration: 10               # seconds per leg
+  log_dir: /var/lib/tsn5g-ue/iperf_logs
 
 # Where the daemon persists last-good state for auto-resume on reboot
 state_file: /var/lib/tsn5g-ue/state.json
