@@ -110,6 +110,44 @@ api:
   port: 8080
 
 # ---------------------------------------------------------------------------
+# Software TSN bridge — the UE doing what a managed TSN switch would
+#
+# Off by default. When enabled the UE classifies, gates and tags traffic itself,
+# so no switch hardware is needed between a camera and the modem.
+#
+# The gate lives on a veth because taprio needs one TX queue per traffic class
+# and the modem interface has exactly one. Check yours before enabling:
+#     ls -d /sys/class/net/wwan0/queues/tx-* | wc -l
+# ---------------------------------------------------------------------------
+tsnbridge:
+  enabled: false
+  underlay: wwan0            # the bearer the tunnels ride on
+  # remote_ip: 10.45.0.1     # defaults to vxlan.core_ip
+  veth_queues: 8             # must be >= the number of traffic classes
+  modem_qdisc_limit: 20      # keep the modem from absorbing a whole gate cycle
+
+  # Profiles were written for three classes; a two-class bridge leaves the
+  # middle window belonging to nobody. Who inherits it:
+  #   shared    everyone gets it        (default)
+  #   priority  the top class gets it
+  #   closed    it stays shut, and a third of the cycle is idle
+  fold: shared
+
+  classes:
+    - name: ctrl
+      vlan: 60
+      vni: 606
+      dstport: 4789
+      identity_map: true     # the sender's priority becomes the PCP
+      bridge_ip: 10.60.0.2/24
+    - name: video
+      vlan: 80
+      vni: 808
+      dstport: 4790          # its own port, or the core sees one flow
+      identity_map: true
+      bridge_ip: 10.80.0.2/24
+
+# ---------------------------------------------------------------------------
 # Throughput testing (iperf3)
 # ---------------------------------------------------------------------------
 speedtest:

@@ -274,6 +274,18 @@ export function createApi({ base = "", timeout = 8000, fetchImpl, onCall } = {})
       csv: (id, o) => GET(`/api/iperf/runs/${encodeURIComponent(id)}/summary.csv`, o),
     },
 
+    // -- software TSN bridge ---------------------------------------------
+    bridge: {
+      get: (o) => GET("/api/bridge", o),
+      profiles: (query, o) => GET("/api/bridge/profiles", { ...o, query }),
+      build: (body, o) => POST("/api/bridge/build", body, o),
+      teardown: (body, o) => POST("/api/bridge/teardown", body, o),
+      gate: (body, o) => POST("/api/bridge/gate", body, o),
+      clearGate: (body, o) => request("DELETE", "/api/bridge/gate", { ...o, body }),
+      addRule: (body, o) => POST("/api/bridge/rules", body, o),
+      delRule: (body, o) => request("DELETE", "/api/bridge/rules", { ...o, body }),
+    },
+
     perf: {
       dummy: (o) => GET("/api/perf/dummy", o),
       startDummy: (body, o) => POST("/api/perf/dummy", body, o),

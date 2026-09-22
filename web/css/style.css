@@ -513,3 +513,14 @@ body { font-family: var(--font-ui); font-size: var(--fs-body); }
 .state-dot.idle { background: var(--faint); }
 .state-addr { font-size: .95rem; color: var(--faint); margin-top: 2px; }
 .detail-list { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+
+/* ---- TSN bridge: gate schedule strip -----------------------------------
+   A cycle drawn to scale, so a fold that leaves a third of it shut is
+   visible rather than inferred from a table of nanoseconds. */
+.gate-strip {
+  display: flex; height: 26px; width: 100%;
+  border: 1px solid var(--line); border-radius: 2px;
+  overflow: hidden; margin: 10px 0;
+}
+.gate-slot { display: block; height: 100%; flex: none; }
+.gate-slot + .gate-slot { border-left: 1px solid var(--panel); }

@@ -136,6 +136,51 @@ def register_all(jobs, controller):
         ctx.step("ptp4l", "starting the time-sync daemon")
         return controller.gptp_start(iface=ctx.params.get("iface"))
 
+    # -- software TSN bridge -------------------------------------------------
+    def bridge_build(ctx):
+        """Create the data path, naming each device as it appears.
+
+        Worth watching rather than waiting on: if the veth comes up with fewer
+        queues than there are traffic classes, the gate cannot be expressed and
+        the operator needs to know which device disappointed them.
+        """
+        name = ctx.params.get("name")
+        bridge = controller.tsnbridge
+        ctx.plan(["preflight", "devices", "queue-depth"])
+
+        ctx.step("preflight", "reading the bearer address and MTU")
+        st = bridge.status()
+        ctx.log(f"underlay {st['underlay']} at {st['local_ip'] or 'no address'}, "
+                f"bearer MTU {st['bearer_mtu']} -> inner {st['inner_mtu']}")
+        if st["modem_tx_queues"] < 2:
+            ctx.log(f"{st['underlay']} has {st['modem_tx_queues']} TX queue — "
+                    f"the gate goes on a veth, not here")
+
+        ctx.step("devices", f"building {name or 'every class'}")
+        result = bridge.build(name=name)
+        for built in result["built"]:
+            up = [d for d, ok in built["devices"].items() if ok]
+            ctx.log(f"{built['name']}: vlan {built['vlan']} vni {built['vni']} "
+                    f"port {built['dstport']} mtu {built['mtu']} "
+                    f"({built['egress_map']} map)")
+            ctx.log(f"  {', '.join(up)}")
+            ctx.log(f"  gate device {built['gate_device']}")
+
+        ctx.step("queue-depth", "keeping the modem from absorbing a gate cycle")
+        ctx.log("a deep queue downstream of the gate smooths the schedule away")
+        return result
+
+    def bridge_teardown(ctx):
+        name = ctx.params.get("name")
+        ctx.plan(["remove"])
+        ctx.step("remove", f"removing {name or 'every class'}")
+        result = controller.tsnbridge.teardown(name=name)
+        ctx.log(", ".join(result["removed"]) or "nothing was built")
+        return result
+
+    jobs.register("bridge.build", bridge_build, LANE_NET)
+    jobs.register("bridge.teardown", bridge_teardown, LANE_NET)
+
     jobs.register("modem.check", modem_check, LANE_MODEM)
     jobs.register("net.transport_start", transport_start, LANE_NET)
     jobs.register("net.gptp_start", gptp_start, LANE_NET)

@@ -18,6 +18,7 @@ import threading
 from . import constants as C
 from .config import Config, StateStore
 from .discovery import Discovery
+from .tsnbridge import BridgeManager
 from .gptp import GptpManager
 from .modem import ModemManager
 from .modem.bus import ModemBus
@@ -82,6 +83,11 @@ class Controller:
         # hardware. Offering nothing here is what made gPTP unstartable.
         self.gptp = GptpManager(config.gptp, self._hw_ts_interfaces())
         self.switch = SwitchManager(config.switch)
+        # The software TSN bridge. Kept separate from self.transport: that is
+        # the overlay the console has always built, this is the newer path in
+        # which the UE classifies and gates for itself. Both can exist while
+        # the new one is proven.
+        self.tsnbridge = BridgeManager(config, bearer=self.bearer)
         self.tas = TasManager(config.as_dict().get("tas", {}))
         self.speedtest = SpeedTest(config.as_dict().get("speedtest", {}))
         self.netiface = NetIfaceManager(

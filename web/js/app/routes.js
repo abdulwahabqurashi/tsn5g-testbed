@@ -108,6 +108,14 @@ export const ROUTES = [
     load: () => import("../views/diagnostics.js"),
   },
   {
+    name: "bridge",
+    path: "/bridge",
+    title: "TSN Bridge",
+    icon: "swap",
+    section: "advanced",
+    load: () => import("../views/advanced/bridge.js"),
+  },
+  {
     name: "transport",
     path: "/transport",
     title: "Transport",

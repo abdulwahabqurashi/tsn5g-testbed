@@ -40,6 +40,30 @@ gptp:
   enabled: false
 tas:
   default_profile: urllc-5qi82
+# ---------------------------------------------------------------------------
+# Software TSN bridge. Off until the data path is proven — turning it on does
+# nothing by itself; the build has to be triggered from the UI or the API.
+# ---------------------------------------------------------------------------
+tsnbridge:
+  enabled: false
+  underlay: wwan0
+  veth_queues: 8
+  modem_qdisc_limit: 20
+  fold: shared
+  classes:
+    - name: ctrl
+      vlan: 60
+      vni: 606
+      dstport: 4789
+      identity_map: true
+      bridge_ip: 10.60.0.2/24
+    - name: video
+      vlan: 80
+      vni: 808
+      dstport: 4790
+      identity_map: true
+      bridge_ip: 10.80.0.2/24
+
 speedtest:
   # Where iperf runs are written. The existing runs from iperf5g.sh are
   # here, so history stays continuous.
