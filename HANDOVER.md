@@ -43,6 +43,13 @@ the command**:
   shell, immediately.** If it hangs instead, the rule is not installed — the
   file header carries the one-line install, which the operator must run.
 - Use `python3` + `http.client`, never `curl`, to talk to the API.
+- **For privileged *inspection*, use `GET /api/debug/snapshot`.** The daemon is
+  root and already reads what your shell cannot: `routing.live.mangle_output`,
+  `nat_postrouting`, `ip_rule` and `tables` are the `iptables -S` and `ip rule`
+  output you would otherwise need sudo for, plus `bearer`, `bus`, `interfaces`,
+  `commands` (the shell log with exit codes and output) and `log`. Reach for it
+  before concluding something is unreachable.
+- `journalctl -u tsn5g-ue` works unprivileged — this user is in group `adm`.
 - Mutating `ip`/`tc`/`iptables` from your shell is still blocked, and that is
   correct: the daemon owns them and you reach them through the API. Read-only
   forms (`ip -d link show`, `tc qdisc show`) work unprivileged already.
@@ -259,7 +266,12 @@ reaches *uplink* grants. Both are stop conditions — test before building UE 2.
 
 ## 7. State right now
 
-- Service **active**, bearer up `10.45.0.12`, handle `3800377824`.
+- Service **active**, bearer up `10.45.0.12`. **The handle changes on every
+  restart** — the daemon re-dials rather than adopting the preserved one
+  (seen `3800377824` -> `3799127376`, cid 21 -> 22, same IP).
+  `RuntimeDirectoryPreserve` still earns its place: it keeps the old handle
+  alive long enough to tear the call down cleanly instead of orphaning it.
+  Read the live value from `/api/debug/snapshot`, never from a past note.
 - Radio healthy: **RSRP −95, SINR 21**, NR5G-SA, cell `00066C000`.
 - **The 5G data path recovered on 22 Sep** after nine days dead. It is working.
 - TSN bridge **built**: `tb-ctrl*` and `tb-video*` exist, `ctrl` gated with
