@@ -441,9 +441,13 @@ def main():
             }
             return out;
         """)
+        # Assert containment, not equality: "parked under Advanced" is the
+        # property being tested, and pinning the exact list makes every new
+        # TSN view a failure for no reason. It did, when the bridge arrived.
+        expected = {"transport", "switch", "gptp", "bridge"}
         check("the TSN views are parked under an Advanced nav section",
-              under == ["transport", "switch", "gptp"],
-              f"found {under}")
+              expected.issubset(set(under or [])),
+              f"missing {sorted(expected - set(under or []))}; found {under}")
 
         print("=== advanced/transport ===")
         m.script("window.location.hash = '#/transport';")

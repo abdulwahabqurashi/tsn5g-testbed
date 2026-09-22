@@ -322,7 +322,7 @@ class IperfRunner:
             detail = (proc.stderr or "").strip()[:200]
             if ctx:
                 ctx.log(f"{leg}: FAILED — {detail or 'iperf3 exited ' + str(proc.returncode)}")
-            self._diagnose_failure(ctx)
+            self._diagnose_failure(ctx, error=detail)
             return {**row, "error": detail, "bind": bind, "json_path": json_path}
 
         try:
@@ -331,7 +331,7 @@ class IperfRunner:
             row["status"] = "failed"
             if ctx:
                 ctx.log(f"{leg}: {exc}")
-            self._diagnose_failure(ctx)
+            self._diagnose_failure(ctx, error=str(exc))
             return {**row, "error": str(exc), "bind": bind, "json_path": json_path}
 
         row.update({k: result[k] for k in
@@ -365,15 +365,32 @@ class IperfRunner:
         except Exception:               # noqa: BLE001
             return {}
 
-    def _diagnose_failure(self, ctx):
-        """Say whether the bearer died or just the server, as the script does."""
+    def _diagnose_failure(self, ctx, error=None):
+        """Say what actually went wrong, rather than a generic hint.
+
+        This used to add "the far side is likely down" to every reachable-server
+        failure, including ones where iperf3 had already said the server was
+        busy — so the log contradicted itself and pointed at the wrong thing.
+        A failure that names its own cause does not need a guess appended.
+        """
         if not ctx:
             return
+        text = (error or "").lower()
+        if "busy" in text:
+            ctx.log(f"{self.server} is running someone else's test — iperf3 "
+                    f"serves one at a time. Nothing here is wrong; wait, or "
+                    f"start a second server on another port.")
+            return
+        if "refused" in text:
+            ctx.log(f"{self.server} refused the connection — it is reachable "
+                    f"but nothing is listening on that port.")
+            return
+
         proc = utils.run(["ping", "-I", self.iface, "-c", "2", "-W", "2",
                           self.server], check=False, timeout=15)
         if proc.returncode == 0:
-            ctx.log("the server is reachable, so the far side is likely down "
-                    "(is iperf3 -s running?)")
+            ctx.log("the server answers ICMP, so the bearer is up and the "
+                    "problem is on the far side (is iperf3 -s running?)")
         else:
             ctx.log(f"no response from {self.server} over {self.iface} — the "
                     f"bearer is down, not the server")
