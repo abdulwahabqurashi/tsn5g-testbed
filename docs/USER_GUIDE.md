@@ -41,6 +41,15 @@ Two values in `/etc/tsn5g-ue/tsn5g-ue.yaml` must match your network:
 
 Then `sudo systemctl restart tsn5g-ue`.
 
+> **Restarting without a password prompt.** `systemctl` does not go through
+> `sudo` — it asks polkit, which by default wants an administrator password
+> typed into an authentication agent. A non-interactive shell or script has
+> no agent, so the call hangs and then reports `Method call timed out`, which
+> looks like a permission error but is not. Installing the rule shipped at
+> `docs/tsn5g-ue.polkit.rules` lets the console user run plain
+> `systemctl restart tsn5g-ue` with no `sudo` and no prompt. See that file's
+> header for the one-line install and what it does and does not grant.
+
 Everything else auto-detects. In particular **do not pin `modem.device`** — the
 AT serial port number moves between boots (we have seen the same machine use
 `ttyUSB2` and `ttyUSB3` on the same day). The daemon probes for it.
