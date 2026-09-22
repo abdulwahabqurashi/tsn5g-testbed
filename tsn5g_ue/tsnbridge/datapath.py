@@ -50,6 +50,9 @@ class Datapath:
         self.dstport = int(spec.get("dstport", 4789))
         self.identity_map = bool(spec.get("identity_map", True))
         self.pcp = spec.get("pcp")
+        # The outer marking. None means "do not write one", which is what
+        # every class did before this existed.
+        self.dscp = spec.get("dscp")
         self.bridge_ip = spec.get("bridge_ip")
         self.underlay = underlay
         self.local_ip = local_ip
@@ -96,12 +99,9 @@ class Datapath:
                         num_queues=veth_queues, mtu=self.mtu)
 
         # 2. the tunnel
-        netdev._run(["ip", "link", "add", self.dev_vxlan, "type", "vxlan",
-                     "id", str(self.vni), "dev", self.underlay,
-                     "local", self.local_ip, "remote", self.remote_ip,
-                     "dstport", str(self.dstport)])
-        netdev.set_mtu(self.dev_vxlan, self.mtu)
-        netdev.up(self.dev_vxlan)
+        netdev.vxlan_add(self.dev_vxlan, self.vni, self.underlay,
+                         self.local_ip, self.remote_ip,
+                         dstport=self.dstport, dscp=self.dscp, mtu=self.mtu)
 
         # 3. the tag. This is the device the old transport never created, which
         #    is why its tunnels carried untagged frames and nothing downstream
@@ -139,6 +139,17 @@ class Datapath:
             logger.info("datapath '%s' removed: %s", self.name, ", ".join(gone))
         return gone
 
+    def _live_dscp(self):
+        """The DSCP actually on the tunnel, read back from the kernel.
+
+        None means the device is absent; 0 means it exists and carries no
+        marking, which is a different answer and worth telling apart.
+        """
+        if not netdev.exists(self.dev_vxlan):
+            return None
+        tos = netdev.read_tos(self.dev_vxlan)
+        return (int(str(tos), 0) >> 2) if tos is not None else 0
+
     def status(self):
         present = {d: netdev.exists(d) for d in self.devices()}
         return {
@@ -146,6 +157,8 @@ class Datapath:
             "vlan": self.vlan, "vni": self.vni, "dstport": self.dstport,
             "mtu": self.mtu,
             "egress_map": "identity" if self.identity_map else "remark",
+            "dscp": self.dscp,
+            "outer_dscp_live": self._live_dscp(),
             "gate_device": self.dev_veth_a,
             "devices": present,
             "up": all(present.values()),

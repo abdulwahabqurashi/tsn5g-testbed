@@ -8,8 +8,10 @@ NW-TT. Data path per class (ported from tsn-scripts/ds_tt.sh + setup_qos.sh):
                     ├─ br<vlan> ─ vxlan<vlan> (VNI, dstport, remote=core_ip) ─ wwan0 ─ 5G ─ core_ip
   (PCP preserved) ──┘
 
-PCP is preserved in the inner tag and mirrored to the outer DSCP so the 5G core
-can classify. All VXLAN-facing interfaces use MTU 1450 for header headroom.
+PCP is preserved in the inner tag, and each class's configured DSCP is stamped
+on the outer header at device creation — that outer value is the only priority
+the 5G system can act on, since the inner tag is payload to it. All VXLAN-facing
+interfaces use MTU 1450 for header headroom.
 """
 
 import logging
@@ -73,8 +75,17 @@ class VxlanTransport(Transport):
         dstport = str(e.get("dstport", 4789)); pcp = e.get("pcp", 0); dscp = e.get("dscp", 0)
         vx = f"vxlan{vlan}"; br = f"br{vlan}"
         # VXLAN tunnel over the modem IP session
-        utils.ip("link", "add", vx, "type", "vxlan", "id", str(vni), "dev", self.modem.wwan,
-                 "local", local_ip, "remote", self.core_ip, "dstport", dstport)
+        argv = ["link", "add", vx, "type", "vxlan", "id", str(vni), "dev", self.modem.wwan,
+                "local", local_ip, "remote", self.core_ip, "dstport", dstport]
+        # The outer DSCP has to be set when the device is created. This used to
+        # be attempted afterwards with a tc filter that set skb->priority — a
+        # kernel-internal field, not the IP header — so the configured value
+        # never reached the wire. DSCP is the top six bits of the TOS byte,
+        # and `ip` reads that byte as hex: the decimal string is rejected
+        # outright rather than misread.
+        if dscp:
+            argv += ["tos", hex(int(dscp) << 2)]
+        utils.ip(*argv)
         utils.ip("link", "set", vx, "mtu", self.mtu)
         # per-class bridge
         if not utils.iface_exists(br):
@@ -92,22 +103,8 @@ class VxlanTransport(Transport):
         utils.ip("link", "set", vx, "master", br)
         for dev in (vx, br):
             utils.ip("link", "set", dev, "up")
-        # Mirror inner PCP to the outer DSCP so the 5G core can classify (setup_qos.sh).
-        self._mark_dscp(vx, dscp)
         self._built += [vx, br] + ([f"{wired}.{vlan}"] if wired else [])
         logger.info("vxlan class vlan=%d vni=%d dstport=%s pcp=%d dscp=%d", vlan, vni, dstport, pcp, dscp)
-
-    def _mark_dscp(self, vx, dscp):
-        # tos byte = dscp << 2; set on the vxlan egress via tc if fine-grained needed.
-        # Simple approach: set the tunnel tos to inherit and mark with tc skbedit.
-        try:
-            utils.tc("qdisc", "add", "dev", vx, "root", "handle", "1:", "prio", check=False)
-            utils.tc("filter", "add", "dev", vx, "parent", "1:", "protocol", "ip", "u32",
-                     "match", "u8", "0", "0", "action",
-                     "skbedit", "priority", str(dscp), check=False)
-        except utils.CommandError as exc:
-            logger.debug("dscp mark tc failed on %s: %s", vx, exc)
-
     def _build_ptp(self, local_ip):
         ptp = self.vcfg.get("ptp") or {}
         if not ptp:

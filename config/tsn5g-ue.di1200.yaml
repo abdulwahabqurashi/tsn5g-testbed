@@ -51,17 +51,23 @@ tsnbridge:
   modem_qdisc_limit: 20
   fold: shared
   classes:
+    # dscp is the OUTER marking, and the only priority the 5G system can act
+    # on — the inner 802.1Q tag is payload to the RAN. Values follow the same
+    # map as vxlan.vlan_map above: 46 (EF) for control, 0 for best effort.
+    # When the third class lands, hp_video takes 34 (AF41).
     - name: ctrl
       vlan: 60
       vni: 606
       dstport: 4789
       identity_map: true
+      dscp: 46
       bridge_ip: 10.60.0.2/24
     - name: video
       vlan: 80
       vni: 808
       dstport: 4790
       identity_map: true
+      dscp: 0
       bridge_ip: 10.80.0.2/24
 
 speedtest:

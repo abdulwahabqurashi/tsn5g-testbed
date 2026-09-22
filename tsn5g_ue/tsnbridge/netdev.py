@@ -7,6 +7,7 @@ does nothing while the layer above reports success. Nothing swallows an error;
 callers decide what is fatal.
 """
 
+import json
 import logging
 import re
 
@@ -102,6 +103,93 @@ def veth_add(a, b, num_queues=8, mtu=None):
             f"a gate schedule with more classes than queues will be refused")
     logger.info("veth %s <-> %s up with %d TX queues", a, b, got)
     return {"a": a, "b": b, "tx_queues": got}
+
+
+# -- vxlan ------------------------------------------------------------------
+def dscp_to_tos(dscp):
+    """DSCP (0-63) -> the TOS byte that carries it.
+
+    DSCP occupies the top six bits of the eight-bit field, so the value is
+    shifted left by two and the ECN bits are left at zero. Passing a DSCP
+    straight through as TOS is the classic off-by-four-times mistake: it
+    writes DSCP 11 (nothing) where 46 (EF) was meant.
+    """
+    d = int(dscp)
+    if not 0 <= d <= 63:
+        raise NetdevError(f"dscp {d} out of range 0-63")
+    return d << 2
+
+
+def tos_arg(dscp):
+    """The TOS byte as `ip` wants to read it: hexadecimal.
+
+    iproute2 parses a vxlan `tos` through rtnl_dsfield_a2n, which is base 16.
+    Passing the decimal string is not a wrong-looking value, it is a hard
+    error — `tos 184` is read as 0x184, overflows a byte, and the link is
+    never created.
+    """
+    return hex(dscp_to_tos(dscp))
+
+
+def read_tos(dev):
+    """The TOS byte the kernel has on a vxlan device, or None if unset.
+
+    iproute2 omits `tos` from the JSON entirely when it is zero, so absence
+    and zero are the same answer here — and both mean the outer header
+    carries no DSCP.
+    """
+    proc = _run(["ip", "-d", "-j", "link", "show", dev], check=False)
+    if proc.returncode != 0:
+        return None
+    try:
+        info = json.loads(proc.stdout or "[]")[0]
+        return info.get("linkinfo", {}).get("info_data", {}).get("tos")
+    except (ValueError, IndexError, KeyError, AttributeError):
+        return None
+
+
+def vxlan_add(name, vni, underlay, local, remote, dstport=4789, dscp=None,
+              mtu=None):
+    """A VXLAN tunnel, optionally stamping a fixed DSCP on the outer header.
+
+    The outer DSCP is the only priority marking the 5G system can act on: the
+    inner 802.1Q tag is payload to it, and the RAN never sees it. Each class
+    has its own tunnel device, so a fixed per-device TOS says exactly what is
+    meant and there is nothing to infer.
+
+    `tos inherit` is deliberately not used. It asks the kernel to copy the
+    inner header's DS field, but the inner frame here is Ethernet carrying a
+    VLAN tag, not bare IP, so what inherit resolves to on this path has not
+    been measured. A literal value is unambiguous and needs no such claim.
+    """
+    if not valid_ifname(name):
+        raise NetdevError(f"invalid interface name '{name}'")
+    delete(name)
+    argv = ["ip", "link", "add", name, "type", "vxlan", "id", str(vni),
+            "dev", underlay, "local", local, "remote", remote,
+            "dstport", str(dstport)]
+    if dscp is not None:
+        argv += ["tos", tos_arg(dscp)]
+    _run(argv)
+    if mtu:
+        set_mtu(name, mtu)
+    up(name)
+
+    # Read it back. A tos that did not land is the whole bug this replaced:
+    # code that logged a DSCP it had never written.
+    if dscp is not None:
+        want = dscp_to_tos(dscp)
+        got = read_tos(name)
+        got_i = int(str(got), 0) if got is not None else 0
+        if got_i != want:
+            raise NetdevError(
+                f"{name}: asked for dscp {dscp} (tos {want:#04x}), kernel "
+                f"reports tos {got_i:#04x}; the outer header would not carry "
+                f"the marking")
+    logger.info("vxlan %s vni %s over %s -> %s:%s (dscp %s)",
+                name, vni, underlay, remote, dstport,
+                dscp if dscp is not None else "unset")
+    return name
 
 
 # -- vlan -------------------------------------------------------------------
