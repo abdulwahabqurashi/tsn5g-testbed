@@ -109,8 +109,31 @@ class LinuxPlatform(Platform):
 
     # -- interface IP -------------------------------------------------------
     def set_ip(self, iface, method, address=None, gateway=None):
+        """Configure an interface, and report what actually happened.
+
+        This used to return {"ok": True} unconditionally with every command
+        run under check=False, so a request that failed outright was reported
+        to the operator as a success and left no trace anywhere. It now
+        re-reads the interface afterwards and returns the address the kernel
+        actually holds.
+        """
         if utils.have("nmcli"):
-            return self._nmcli_ip(iface, method, address, gateway)
+            result = self._nmcli_ip(iface, method, address, gateway)
+        else:
+            result = self._iproute_ip(iface, method, address, gateway)
+
+        result["ipv4"] = self.current_ipv4(iface)
+        if method == "static" and address:
+            want = address.split("/")[0]
+            if result["ipv4"] != want:
+                raise RuntimeError(
+                    f"{iface} did not take the address: asked for {address}, "
+                    f"it now has {result['ipv4'] or 'none'}. "
+                    f"{result.get('detail') or ''}".strip())
+        return result
+
+    def _iproute_ip(self, iface, method, address, gateway):
+        """Fallback when NetworkManager is absent. Errors are not swallowed."""
         if method == "down":
             utils.ip("link", "set", iface, "down")
         elif method == "static":
@@ -118,24 +141,90 @@ class LinuxPlatform(Platform):
             utils.ip("addr", "add", address, "dev", iface)
             utils.ip("link", "set", iface, "up")
             if gateway:
-                utils.ip("route", "replace", "default", "via", gateway, "dev", iface, check=False)
-        else:  # dhcp
+                utils.ip("route", "replace", "default", "via", gateway,
+                         "dev", iface, check=False)
+        else:
             utils.ip("link", "set", iface, "up")
             self.dhcp(iface)
-        return {"ok": True, "iface": iface, "method": method}
+        return {"ok": True, "iface": iface, "method": method, "via": "iproute2"}
+
+    @staticmethod
+    def nm_connection_for(iface):
+        """The NetworkManager profile bound to this device, or None.
+
+        `nmcli con mod <name>` takes a CONNECTION name, not an interface name,
+        and the two rarely match — on this rig enp3s0 is served by a profile
+        called "Wired connection 2". Passing the interface name failed with
+        "unknown connection" for every interface that had no same-named
+        profile, which was all of them but one.
+        """
+        proc = utils.run(["nmcli", "-t", "-f", "NAME,DEVICE", "con", "show"],
+                         check=False, timeout=10)
+        for line in (proc.stdout or "").splitlines():
+            # NAME may contain ':' so split from the right.
+            name, _, dev = line.rpartition(":")
+            if dev == iface and name:
+                return name
+        return None
 
     def _nmcli_ip(self, iface, method, address, gateway):
         if method == "down":
-            utils.run(["nmcli", "device", "disconnect", iface], check=False)
-        elif method == "static":
-            utils.run(["nmcli", "con", "mod", iface, "ipv4.method", "manual",
-                       "ipv4.addresses", address]
-                      + (["ipv4.gateway", gateway] if gateway else []), check=False)
-            utils.run(["nmcli", "con", "up", iface], check=False)
+            proc = utils.run(["nmcli", "device", "disconnect", iface],
+                             check=False, timeout=20)
+            return {"ok": proc.returncode == 0, "iface": iface, "method": method,
+                    "via": "nmcli", "detail": _nm_msg(proc)}
+
+        con = self.nm_connection_for(iface)
+        if con is None:
+            # No profile for this device. Create one rather than failing —
+            # an interface that has never been configured is the normal case
+            # for a port someone has just patched in.
+            cmd = ["nmcli", "con", "add", "type", "ethernet",
+                   "ifname", iface, "con-name", iface]
+            if method == "static":
+                cmd += ["ipv4.method", "manual", "ipv4.addresses", address]
+                if gateway:
+                    cmd += ["ipv4.gateway", gateway]
+            else:
+                cmd += ["ipv4.method", "auto"]
+            proc = utils.run(cmd, check=False, timeout=25)
+            if proc.returncode != 0:
+                raise RuntimeError(
+                    f"could not create a NetworkManager profile for {iface}: "
+                    f"{_nm_msg(proc)}")
+            con = iface
+            logger.info("created NetworkManager profile '%s' for %s", con, iface)
         else:
-            utils.run(["nmcli", "con", "mod", iface, "ipv4.method", "auto"], check=False)
-            utils.run(["nmcli", "con", "up", iface], check=False)
-        return {"ok": True, "iface": iface, "method": method}
+            if method == "static":
+                args = ["ipv4.method", "manual", "ipv4.addresses", address]
+                # Clear a stale gateway rather than leaving one behind: a
+                # second default route would compete with the management one.
+                args += ["ipv4.gateway", gateway or ""]
+            else:
+                args = ["ipv4.method", "auto", "ipv4.addresses", "",
+                        "ipv4.gateway", ""]
+            proc = utils.run(["nmcli", "con", "mod", con] + args,
+                             check=False, timeout=25)
+            if proc.returncode != 0:
+                raise RuntimeError(
+                    f"could not modify connection '{con}' for {iface}: "
+                    f"{_nm_msg(proc)}")
+
+        up = utils.run(["nmcli", "con", "up", con], check=False, timeout=45)
+        if up.returncode != 0:
+            raise RuntimeError(
+                f"connection '{con}' would not come up on {iface}: {_nm_msg(up)}")
+
+        return {"ok": True, "iface": iface, "method": method,
+                "via": "nmcli", "connection": con, "detail": _nm_msg(up)}
+
+    @staticmethod
+    def current_ipv4(iface):
+        """The address the kernel holds right now, without the prefix."""
+        proc = utils.run(["ip", "-4", "-o", "addr", "show", iface],
+                         check=False, timeout=10)
+        m = re.search(r"inet\s+(\d+\.\d+\.\d+\.\d+)", proc.stdout or "")
+        return m.group(1) if m else None
 
     def dhcp(self, iface, timeout=20):
         if utils.have("dhclient"):
@@ -187,6 +276,11 @@ class LinuxPlatform(Platform):
             return m.group(1) if m else None
         except utils.CommandError:
             return None
+
+
+def _nm_msg(proc):
+    """nmcli puts its reason on stderr on failure and stdout on success."""
+    return ((proc.stderr or "") + (proc.stdout or "")).strip() or None
 
 
 def _int(s):

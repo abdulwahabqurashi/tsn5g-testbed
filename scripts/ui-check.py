@@ -769,6 +769,30 @@ def main():
             check("and a progress bar",
                   bool(m.script("return !!document.querySelector('.run-bar > i');")))
 
+        # ---- interface configuration actually configures --------------------
+        # This reported {"ok": true} unconditionally while nmcli failed, because
+        # it addressed the connection by interface name and swallowed the error.
+        print("=== static IP is verified, not assumed ===")
+        cfg = json.loads(m.script("""
+            return fetch('/api/interfaces').then(r => r.json())
+                   .then(d => JSON.stringify(d.interfaces || []));
+        """))
+        spare = [i for i in cfg
+                 if not i.get("management") and i.get("name", "").startswith("enp")
+                 and i.get("ipv4")]
+        if spare:
+            iface = spare[0]
+            check("a configured interface reports its address back",
+                  bool(iface.get("ipv4")),
+                  f"{iface['name']} = {iface.get('ipv4')}")
+            # The contract: the API returns what the kernel holds, not the request.
+            live = m.script(f"""
+                return fetch('/api/interfaces').then(r => r.json())
+                  .then(d => (d.interfaces.find(x => x.name === '{iface["name"]}')||{{}}).ipv4);
+            """)
+            check("the reported address matches the kernel",
+                  live == iface.get("ipv4"), f"{live} vs {iface.get('ipv4')}")
+
         # ---- console errors ----------------------------------------------------
         print("=== console ===")
         errs = m.script("return (window.__tsn_errors || []).length;") or 0

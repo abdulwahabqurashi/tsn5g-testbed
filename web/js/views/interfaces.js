@@ -153,8 +153,12 @@ export default defineView({
           if (!ok) return;
         }
         try {
-          await view.api.iface.config(payload, { signal: view.signal });
-          toast(`${iface.name} set to ${method.value}`, "ok");
+          // The backend re-reads the interface and returns the address the
+          // kernel actually holds, so report that rather than the request.
+          const res = await view.api.iface.config(payload, { signal: view.signal });
+          toast(res?.ipv4
+            ? `${iface.name} is now ${res.ipv4}`
+            : `${iface.name} set to ${method.value}`, "ok");
           closeDrawer();
           section.reload();
         } catch (err) {
