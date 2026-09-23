@@ -6,6 +6,7 @@ the `net` lane — they take seconds and the operator should see the steps.
 Reads and dry runs are synchronous.
 """
 
+from ..net import capture
 from ..tsnbridge import profiles as bridge_profiles
 from ..tsnbridge.manager import BridgeError
 from .router import ApiError
@@ -53,6 +54,25 @@ def register(router):
         return req.ctx.submit_job("bridge.teardown", {"name": req.opt("name")})
 
     # -- gate ---------------------------------------------------------------
+    @router.post("/api/bridge/capture")
+    def bridge_capture(req):
+        """Look at the wire once, to see the markings nothing else reports.
+
+        The 802.1p PCP is inside the VXLAN payload, so no counter on this box
+        can read it. This is the only way to confirm the inner tag and the
+        outer DSCP are both right in the same frame — which is what an intact
+        marking chain actually means.
+
+        Bounded by packet count and by a timeout, and never run unbounded: a
+        capture left going on a shared machine fills disks and reads traffic
+        that is not ours.
+        """
+        dev = req.require("device")
+        return capture.run(dev,
+                           count=req.integer("count", default=50, lo=1, hi=200),
+                           seconds=req.integer("seconds", default=10, lo=1, hi=20),
+                           expression=req.opt("filter"))
+
     @router.get("/api/bridge/layouts")
     def bridge_layouts(req):
         """The configured class layouts and which one is active."""

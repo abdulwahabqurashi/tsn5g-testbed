@@ -159,4 +159,12 @@ def _spec(req):
         "udp_rate": req.opt("udp_rate"),
         "length": req.integer("length", default=1200, lo=64, hi=9000),
         "omit": req.integer("omit", default=2, lo=0, hi=30),
+        # The DS field on the test traffic. Two runs at once, one marked and
+        # one not, is the direct test of whether the outer DSCP selects a QoS
+        # flow and whether that flow is scheduled differently — the one
+        # question the UE cannot answer alone. Plain IP to the core exercises
+        # the same uplink QoS rules as the tunnels do, so this needs no VXLAN,
+        # no cameras and no NW-TT.
+        "dscp": req.integer("dscp", default=None, lo=0, hi=63)
+        if req.body.get("dscp") is not None else None,
     }

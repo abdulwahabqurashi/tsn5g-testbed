@@ -166,6 +166,24 @@ def build_command(spec, bind):
            "-t", str(spec.get("duration", 30)), "-i", "1", "-J"]
     if spec.get("parallel", 1) > 1:
         cmd += ["-P", str(spec["parallel"])]
+
+    # The DS field on the test traffic. This is the instrument for the one
+    # question the UE side cannot answer on its own: does the outer DSCP select
+    # a QoS flow, and does that flow get scheduled differently?
+    #
+    # Two runs at once, one marked and one not, measures that directly — and it
+    # needs no VXLAN, no cameras and no NW-TT, because plain IP to the core
+    # exercises exactly the same uplink QoS rules. Simultaneous rather than
+    # sequential on purpose: this uplink swings 29-96 Mbit/s, a spread that
+    # would swamp the effect being looked for if the two runs were compared
+    # across time instead of against each other.
+    dscp = spec.get("dscp")
+    if dscp is not None:
+        d = int(dscp)
+        if not 0 <= d <= 63:
+            raise IperfError(f"dscp {d} out of range 0-63")
+        # iperf3 takes --dscp as the DSCP itself, not the shifted ToS byte.
+        cmd += ["--dscp", str(d)]
     if spec["proto"] == "udp":
         rate = spec.get("udp_rate") or DEFAULT_UDP_RATE.get(spec["dir"], "25M")
         cmd += ["-u", "-b", str(rate), "-l", str(spec.get("length", DEFAULT_LENGTH))]
