@@ -549,9 +549,43 @@ def main():
               "per-camera-tunnel" in flat and "shared-tunnel" in flat,
               f"select options were {flat}")
         # A window shorter than one packet cannot pass one. Saying so in the
-        # picker costs nothing; discovering it after a run costs a day.
-        check("unusable gate profiles are labelled as such",
-              "too short for this link" in text or "coarse at this link" in text)
+        # picker costs nothing; discovering it after a run costs a day. Read the
+        # option LABELS, not their values — the marker is deliberately only in
+        # the text, so the value stays the plain profile name the API takes.
+        labels = m.script("return [...document.querySelectorAll('select')]"
+                          ".flatMap(s => [...s.options].map(o => o.textContent));")
+        check("unusable gate profiles are marked in the picker",
+              any("(unusable)" in x for x in labels),
+              f"{sum('(unusable)' in x for x in labels)} of {len(labels)} "
+              f"options marked unusable")
+        # The layout bug this catches, reported from a screenshot: .kpis was a
+        # fixed four-column grid, so in the narrower gate card each control got
+        # a quarter of the width and clipped its own text — "hpvideo" rendered
+        # as "hpvid", "all-open" as "all-op". Truncation is measurable without
+        # looking: the content is wider than the box drawn for it.
+        clipped = m.script(
+            "return [...document.querySelectorAll('#content select')]"
+            ".filter(s => s.scrollWidth > s.clientWidth + 2)"
+            ".map(s => (s.options[s.selectedIndex]||{}).textContent);")
+        check("no control clips its own text", not clipped,
+              f"clipped: {clipped}" if clipped else "nothing truncated")
+        # .fld had no CSS at all, so label, control and hint ran together
+        # inline and wrapped wherever the column happened to end. Stacked, the
+        # control sits below its label rather than beside it.
+        stacked = m.script(
+            "const f=document.querySelector('#content .fld');"
+            "if(!f) return null;"
+            "const c=f.querySelector('select,input');"
+            "if(!c) return null;"
+            "return c.getBoundingClientRect().top > f.getBoundingClientRect().top + 4;")
+        check("a labelled control sits under its label, not beside it",
+              stacked is True, f"stacked={stacked}")
+
+        # The marker says which; the hint says why, in the arithmetic that
+        # decides it. A verdict with no numbers reads as an opinion.
+        check("the reason is given, not just the verdict",
+              "one packet takes" in text or "holds at least two" in text
+              or "against a" in text)
 
         # ---- Phase 7: diagnostics (the diag.sh successor) ------------------
         print("=== diagnostics ===")

@@ -280,13 +280,15 @@ export default defineView({
       const clsSel = select(built.map((c) => ({ value: c.name, label: c.name })),
                             built[0].name, () => {}, { class: "mini-select" });
       // A window shorter than one packet cannot pass one: the gate opens, the
-      // class starves, and the run reads as "the gate did not help". Labelled
+      // class starves, and the run reads as "the gate did not help". Marked
       // here so an unusable profile is visible before it is applied, not after
-      // a measurement has been wasted on it.
+      // a measurement has been wasted on it. The marker is short because a
+      // select truncates to its control width — the arithmetic goes in the
+      // hint below, where there is room for it.
       const profSel = select(profiles.map((p) => {
         const v = p.feasibility?.verdict;
-        const tag = v === "infeasible" ? "  — too short for this link"
-          : v === "marginal" ? "  — coarse at this link rate" : "";
+        const tag = v === "infeasible" ? " (unusable)"
+          : v === "marginal" ? " (coarse)" : "";
         return { value: p.name, label: p.name + tag };
       }),
                              profiles[0]?.name, () => paintWindows(),
@@ -295,9 +297,12 @@ export default defineView({
                              (v) => { fold = v; reloadProfiles(); },
                              { class: "mini-select" });
 
+      const profHint = h("span", { class: "hint" });
+      const profFld = field("Profile", profSel);
+      profFld.appendChild(profHint);
       gateBody.appendChild(h("div", { class: "kpis" },
         field("Class", clsSel),
-        field("Profile", profSel),
+        profFld,
         field("Orphaned window", foldSel, FOLD_HELP[fold])));
 
       const windows = h("div");
@@ -307,6 +312,14 @@ export default defineView({
         clear(windows);
         const p = profiles.find((x) => x.name === profSel.value);
         if (!p) return;
+        // Why a profile is unusable, in the numbers that decide it — a verdict
+        // without the arithmetic just looks like an opinion.
+        const f = p.feasibility || {};
+        // Shown for every profile, not only the broken ones: for a workable
+        // profile the same sentence states the margin, which is what tells you
+        // whether it survives the link rate dropping.
+        profHint.textContent = f.reason || "";
+        profHint.className = f.verdict === "infeasible" ? "hint warn" : "hint";
         windows.appendChild(h("p", { class: "hint", text: p.description }));
 
         // The resolved schedule, so the fold's effect is visible before applying.
