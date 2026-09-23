@@ -82,14 +82,24 @@ tsnbridge:
       dstport: 4789
       identity_map: true
       dscp: 46
-      bridge_ip: 10.60.0.2/24
+      gate_ip: 10.60.0.2/24
+    # Camera 1. AF41 is the standard mark for interactive video; EF above is
+    # kept for GVCP control, which is small and genuinely latency-critical.
+    - name: hpvideo
+      vlan: 70
+      vni: 707
+      dstport: 4791
+      identity_map: true
+      dscp: 34
+      gate_ip: 10.70.0.2/24
+    # Camera 2.
     - name: video
       vlan: 80
       vni: 808
       dstport: 4790
       identity_map: true
       dscp: 0
-      bridge_ip: 10.80.0.2/24
+      gate_ip: 10.80.0.2/24
 
 speedtest:
   # Where iperf runs are written. The existing runs from iperf5g.sh are

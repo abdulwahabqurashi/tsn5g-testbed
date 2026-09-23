@@ -95,6 +95,23 @@ class Controller:
             platform=self.platform)
         self._lock = threading.RLock()
 
+
+    def configured_dscps(self):
+        """Every DSCP this UE is configured to stamp on an outer header.
+
+        Both transports, because both write one: the vxlan vlan_map for the
+        switch-based overlay and tsnbridge.classes for the switchless path. 0
+        is included deliberately — "best effort was marked best effort" is a
+        result, and leaving it out would make an unmarked class and a missing
+        class look the same.
+        """
+        out = set()
+        for e in (self.config.vxlan or {}).get("vlan_map", []) or []:
+            out.add(int(e.get("dscp", 0)))
+        for c in (self.config.tsnbridge or {}).get("classes", []) or []:
+            if c.get("dscp") is not None:
+                out.add(int(c["dscp"]))
+        return sorted(out) or [0]
     def _hw_ts_interfaces(self):
         """Interfaces ptp4l can use: config if given, otherwise probed."""
         listed = self.config.hw_timestamp_interfaces()

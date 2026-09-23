@@ -1,5 +1,6 @@
 """The 5G data call."""
 
+from ..net import dscpaudit
 from .router import ApiError
 
 
@@ -50,3 +51,23 @@ def register(router):
         """Stop and restart. The UE address will change."""
         return req.ctx.submit_job("bearer.cycle",
                                   {"confirm": req.confirmed, "apn": req.opt("apn")})
+
+    @router.post("/api/bearer/dscp-audit")
+    def dscp_audit_install(req):
+        """Count each DSCP as it leaves the bearer, after encapsulation.
+
+        The outer DSCP is what uplink QoS flow binding matches on, so it is
+        the one field the core's packet filters depend on. Configuration
+        reporting a value is not evidence it reaches the wire.
+        """
+        b = req.ctx.controller.bearer
+        dscps = req.opt("dscp") or req.ctx.controller.configured_dscps()
+        return dscpaudit.install(b.iface, dscps)
+
+    @router.get("/api/bearer/dscp-audit")
+    def dscp_audit_read(req):
+        return dscpaudit.read(req.ctx.controller.bearer.iface)
+
+    @router.delete("/api/bearer/dscp-audit")
+    def dscp_audit_remove(req):
+        return {"removed": dscpaudit.remove(req.ctx.controller.bearer.iface)}

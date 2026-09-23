@@ -57,6 +57,10 @@ class Config:
         return self._raw.get("vxlan", {})
 
     @property
+    def tsnbridge(self):
+        return self._raw.get("tsnbridge", {})
+
+    @property
     def bridge(self):
         return self._raw.get("bridge", {"name": C.DEFAULT_BRIDGE_NAME})
 
