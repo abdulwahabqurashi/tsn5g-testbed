@@ -26,7 +26,14 @@ class BridgeManager:
         self.underlay = cfg.get("underlay", "wwan0")
         self.remote_ip = cfg.get("remote_ip") or (
             (config.vxlan or {}).get("core_ip") if config else None)
-        self.classes = cfg.get("classes") or []
+        # Two class layouts are kept configured; which is correct depends on
+        # whether the modem binds uplink to a dedicated QoS flow, and nobody
+        # has answered that yet. Selecting rather than rewriting means the
+        # answer decides it, and the losing shape stays tested.
+        self._cfg = cfg
+        self.layouts = cfg.get("layouts") or {}
+        self.layout = cfg.get("layout")
+        self.classes = self._classes_for(self.layout)
         self.veth_queues = int(cfg.get("veth_queues", 8))
         self.shallow_limit = int(cfg.get("modem_qdisc_limit", 20))
         # What a gate window is measured against. Default is the measured
@@ -111,6 +118,50 @@ class BridgeManager:
                     "schedule will not survive it",
                     self.underlay, live["raw"], live["policy"])
         return {"built": out, "local_ip": local, "bearer_mtu": mtu}
+
+    def _classes_for(self, layout):
+        """The class list for a layout, or the flat list if none are defined.
+
+        A flat `classes` key still works: it is what every deployment had
+        before layouts existed, and silently ignoring it would turn an upgrade
+        into an outage.
+        """
+        if not self.layouts:
+            return self._cfg.get("classes") or []
+        if layout is None:
+            layout = next(iter(self.layouts))
+        if layout not in self.layouts:
+            raise BridgeError(
+                f"unknown layout '{layout}'. Configured: "
+                f"{', '.join(sorted(self.layouts))}")
+        return (self.layouts[layout] or {}).get("classes") or []
+
+    def layout_options(self):
+        return [{"name": n,
+                 "description": (v or {}).get("description", "").strip(),
+                 "active": n == self.layout,
+                 "classes": [{"name": c.get("name"), "vlan": c.get("vlan"),
+                              "dscp": c.get("dscp")}
+                             for c in (v or {}).get("classes") or []]}
+                for n, v in sorted(self.layouts.items())]
+
+    def set_layout(self, name):
+        """Switch layouts. Tears the old one down first, on purpose.
+
+        The layouts do not share device names, so leaving the old one up would
+        strand a full set of interfaces carrying a marking nothing routes to
+        any more. Teardown's orphan sweep would eventually clear them, but
+        "eventually" is how the last set came to sit on the box for a day.
+        """
+        classes = self._classes_for(name)      # validates before destroying
+        self.teardown()
+        self.layout = name
+        self.classes = classes
+        logger.info("bridge layout is now '%s': %s", name,
+                    ", ".join(c.get("name", "?") for c in classes))
+        return {"layout": name,
+                "classes": [c.get("name") for c in classes],
+                "built": False}
 
     def teardown(self, name=None):
         wanted = [name] if name else list(self._paths) or \
@@ -251,6 +302,8 @@ class BridgeManager:
             "inner_mtu": datapath.inner_mtu(self._bearer_mtu()),
             "modem_tx_queues": netdev.tx_queues(self.underlay),
             "fold": self.fold,
+            "layout": self.layout,
+            "layouts": self.layout_options(),
             "uplink_mbps": self.uplink_mbps,
             # Which PCP reaches which gate window. Shown rather than assumed:
             # this is the join between marking and scheduling, and a wrong map

@@ -53,6 +53,28 @@ def register(router):
         return req.ctx.submit_job("bridge.teardown", {"name": req.opt("name")})
 
     # -- gate ---------------------------------------------------------------
+    @router.get("/api/bridge/layouts")
+    def bridge_layouts(req):
+        """The configured class layouts and which one is active."""
+        b = _bridge(req)
+        return {"layout": b.layout, "layouts": b.layout_options()}
+
+    @router.post("/api/bridge/layout")
+    def bridge_layout_set(req):
+        """Switch class layout, tear down the old one, persist the choice.
+
+        Does not rebuild: the caller decides when interfaces appear, and a
+        switch that half-built would be worse than one that built nothing.
+        """
+        name = req.require("name")
+        b = _bridge(req)
+        try:
+            res = b.set_layout(name)
+        except BridgeError as exc:
+            raise ApiError(400, str(exc)) from None
+        req.ctx.controller.config.update({"tsnbridge": {"layout": name}})
+        return res
+
     @router.post("/api/bridge/gate")
     def bridge_gate(req):
         """Install a gate schedule on a class's veth."""

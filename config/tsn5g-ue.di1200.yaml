@@ -71,38 +71,65 @@ tsnbridge:
   prio_map: [0, 0, 0, 0, 1, 0, 0, 1]
   modem_qdisc_limit: 20
   fold: shared
-  classes:
-    # dscp is the OUTER marking, and the only priority the 5G system can act
-    # on — the inner 802.1Q tag is payload to the RAN. Values follow the same
-    # map as vxlan.vlan_map above: 46 (EF) for control, 0 for best effort.
-    # When the third class lands, hp_video takes 34 (AF41).
-    # One class per camera, and no control class: pathStream1 terminates GigE
-    # Vision at the UE, so GVCP never crosses the bearer — it stays on the wire
-    # between the UE and the camera. A control class here would be an empty
-    # tunnel. (The raw-GigE-Vision design it came from did need one.)
-    #
-    # Two classes means two tunnels, so the gate cannot arbitrate between the
-    # cameras — that is the network's job via DSCP -> QoS flow -> 5QI. If the
-    # modem turns out not to bind uplink to a dedicated flow, the fallback is
-    # ONE tunnel carrying both cameras in two traffic classes, with the gate
-    # doing the work.
-    #
-    # Camera 1. AF41 is the standard mark for interactive video.
-    - name: hpvideo
-      vlan: 70
-      vni: 707
-      dstport: 4791
-      identity_map: true
-      dscp: 34
-      gate_ip: 10.70.0.2/24
-    # Camera 2.
-    - name: video
-      vlan: 80
-      vni: 808
-      dstport: 4790
-      identity_map: true
-      dscp: 0
-      gate_ip: 10.80.0.2/24
+  # ---------------------------------------------------------------------
+  # Two class layouts, because which one is correct depends on a question
+  # nobody has answered yet: will the modem bind uplink packets to a dedicated
+  # QoS flow based on their DSCP?
+  #
+  #   per-camera-tunnel  One tunnel per camera, each with its own DSCP. The
+  #                      NETWORK prioritises: DSCP -> QoS flow -> 5QI -> the
+  #                      gNB scheduler. A gate shapes one datapath only, so it
+  #                      cannot arbitrate between the cameras here — it does
+  #                      not need to, because the radio does.
+  #
+  #   shared-tunnel      Both cameras in one tunnel, separated by traffic
+  #                      class. The UE prioritises: the gate holds Camera 2
+  #                      back so Camera 1 keeps the link. One tunnel means one
+  #                      DSCP, so the 5G side cannot tell them apart — this is
+  #                      the shape to use if uplink flow binding does not work.
+  #
+  # Switch with POST /api/bridge/layout {"name": "..."} and rebuild. Both are
+  # kept configured so the answer from the core and RAN decides it, not a
+  # rewrite.
+  # ---------------------------------------------------------------------
+  layout: per-camera-tunnel
+
+  layouts:
+    per-camera-tunnel:
+      description: >-
+        One tunnel per camera. The network prioritises by 5QI; the core needs a
+        packet filter matching ToS 0x88 mask 0xfc for Camera 1.
+      classes:
+        # Camera 1. AF41 is the standard mark for interactive video.
+        - name: hpvideo
+          vlan: 70
+          vni: 707
+          dstport: 4791
+          identity_map: true
+          dscp: 34
+          gate_ip: 10.70.0.2/24
+        # Camera 2.
+        - name: video
+          vlan: 80
+          vni: 808
+          dstport: 4790
+          identity_map: true
+          dscp: 0
+          gate_ip: 10.80.0.2/24
+
+    shared-tunnel:
+      description: >-
+        Both cameras in one tunnel, split by traffic class. The gate does the
+        work; the 5G side sees one flow. Point both cameras at 10.70.0.x and
+        mark Camera 1 priority 4, Camera 2 priority 0.
+      classes:
+        - name: cameras
+          vlan: 70
+          vni: 707
+          dstport: 4791
+          identity_map: true
+          dscp: 34
+          gate_ip: 10.70.0.2/24
 
 speedtest:
   # Where iperf runs are written. The existing runs from iperf5g.sh are
