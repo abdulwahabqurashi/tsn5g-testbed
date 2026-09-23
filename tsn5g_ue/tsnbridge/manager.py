@@ -8,6 +8,7 @@ package is that a request and a result are different things.
 
 import logging
 
+from ..net import qdisc
 from . import datapath, gate, mark, netdev, profiles
 
 logger = logging.getLogger("tsn5g-ue.tsnbridge")
@@ -28,6 +29,11 @@ class BridgeManager:
         self.classes = cfg.get("classes") or []
         self.veth_queues = int(cfg.get("veth_queues", 8))
         self.shallow_limit = int(cfg.get("modem_qdisc_limit", 20))
+        # Mirrors modem.egress_queue so the check compares against what
+        # the bearer was actually asked to apply.
+        _mq = ((config.modem if config and hasattr(config, "modem") else {}) or {})
+        self.queue_policy = (_mq.get("egress_queue") or {}).get(
+            "policy", qdisc.SHALLOW)
         # Three classes became two, so profiles written for the switch have a
         # window belonging to a class this bridge does not have. Who inherits
         # it is a stated decision, not a default hidden in the code.
@@ -82,13 +88,19 @@ class BridgeManager:
             self._paths[dp.name] = dp
 
         if not dry_run:
-            # A deep queue on the modem absorbs the gate schedule; see
-            # netdev.shallow_fifo for why this is correctness, not tuning.
-            try:
-                netdev.shallow_fifo(self.underlay, self.shallow_limit)
-            except netdev.NetdevError as exc:
-                logger.warning("could not set a shallow qdisc on %s: %s",
-                               self.underlay, exc)
+            # The bearer owns this interface's queue and re-applies it on every
+            # data call — see net/qdisc.py. The bridge only checks, because two
+            # owners writing the same qdisc is how they come to disagree
+            # without either noticing. A queue that does not match is reported,
+            # not silently repaired: it means the gate has been scheduling into
+            # something that ignores it, and for how long is worth knowing.
+            live = qdisc.describe(self.underlay, self.queue_policy,
+                                  self.shallow_limit)
+            if not live["matches"]:
+                logger.warning(
+                    "%s egress queue is %s, not the configured %s — the gate "
+                    "schedule will not survive it",
+                    self.underlay, live["raw"], live["policy"])
         return {"built": out, "local_ip": local, "bearer_mtu": mtu}
 
     def teardown(self, name=None):

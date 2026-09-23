@@ -5,6 +5,17 @@ modem:
   dnn: usrptsn
   cid: 1
   baud_rate: 115200
+  # The egress queue on wwan0. The Linux default (fq_codel, 10240 packets) is
+  # both far deeper than a gate cycle and deliberately flow-fair, so it cancels
+  # any priority set upstream. Re-applied on every data call, because the
+  # interface loses it when the call is re-established.
+  #   shallow — pfifo, the gate decides and this preserves the decision
+  #   prio    — strict priority at the bottleneck; the control that answers
+  #             "is the gate in the wrong place?"
+  #   default — leave the system default, for a baseline run with no policy
+  egress_queue:
+    policy: shallow
+    limit: 20
 transport:
   mode: vxlan
 vxlan:

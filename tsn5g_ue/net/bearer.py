@@ -32,6 +32,7 @@ import re
 import time
 
 from .. import utils
+from . import qdisc
 from ..modem.qmi import QmiError
 
 logger = logging.getLogger("tsn5g-ue.bearer")
@@ -61,6 +62,12 @@ class BearerManager:
         # point-to-point peer and often does not.
         vx = config.vxlan if hasattr(config, "vxlan") else {}
         self.probe_target = (vx or {}).get("core_ip") or cfg.get("probe_target")
+        # The egress queue on the bearer. Stated policy rather than the
+        # system default — see net/qdisc.py for why the default actively
+        # cancels prioritisation rather than merely diluting it.
+        q = cfg.get("egress_queue") or {}
+        self.queue_policy = q.get("policy", qdisc.SHALLOW)
+        self.queue_limit = int(q.get("limit", qdisc.DEFAULT_LIMIT))
         self.qmi = qmi
         self.modem = modem
         self.events = events
@@ -89,6 +96,8 @@ class BearerManager:
         return {
             "interface": self.iface,
             "state": "up" if addr else "down",
+            "egress_queue": qdisc.describe(self.iface, self.queue_policy,
+                                           self.queue_limit),
             "ipv4": addr,
             "apn": state.get("apn") or self.apn,
             "pdh": state.get("pdh"),
@@ -299,6 +308,19 @@ class BearerManager:
             utils.run(["ip", "link", "set", self.iface, "mtu", str(mtu)],
                       check=False, timeout=15)
             say(f"mtu {mtu}")
+
+        # The queue goes on here, with the address and the MTU, because it is
+        # lost with them. Re-establishing the data call resets the interface to
+        # the system default, and a queue that reverted silently is how a
+        # correctly configured gate comes to measure nothing.
+        try:
+            live = qdisc.apply(self.iface, self.queue_policy, self.queue_limit)
+            say(f"egress queue {self.queue_policy} -> {live['raw']}")
+        except qdisc.QdiscError as exc:
+            # Not fatal: the bearer still carries traffic. But it is loud,
+            # because every scheduling result measured from here is suspect.
+            say(f"WARNING: egress queue not applied: {exc}")
+            logger.warning("egress queue not applied on %s: %s", self.iface, exc)
 
         if gw:
             utils.run(["ip", "route", "replace", f"{gw}/32", "dev", self.iface],
