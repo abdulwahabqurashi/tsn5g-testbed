@@ -53,7 +53,10 @@ class Datapath:
         # The outer marking. None means "do not write one", which is what
         # every class did before this existed.
         self.dscp = spec.get("dscp")
-        self.bridge_ip = spec.get("bridge_ip")
+        # Named for where it lands: the gated end of the veth. The old
+        # key is still read, because it names the same intent even though
+        # the placement it described put the gate out of the path.
+        self.gate_ip = spec.get("gate_ip") or spec.get("bridge_ip")
         self.underlay = underlay
         self.local_ip = local_ip
         self.remote_ip = remote_ip
@@ -120,8 +123,21 @@ class Datapath:
         netdev.enslave(self.dev_veth_b, self.dev_bridge)
         netdev.enslave(self.dev_vlan, self.dev_bridge)
 
-        if self.bridge_ip:
-            netdev.addr_add(self.bridge_ip, self.dev_bridge)
+        # 5. the address goes on the GATED end of the veth, not on the bridge.
+        #
+        # This is the difference between a gate that shapes traffic and a gate
+        # that watches it go past. The address decides which device the kernel
+        # routes out of. On the bridge, host traffic egresses the bridge and is
+        # forwarded straight to the tunnel port — tb-<n>a is never in the path
+        # and taprio shapes nothing. Measured before this changed: 500 packets
+        # to the class subnet incremented the bridge, the veth's far end, the
+        # vlan and the vxlan, and left the gate device at zero.
+        #
+        # On the veth's 'a' end, traffic egresses there — through the gate —
+        # arrives at 'b', and is bridged to the tunnel. Same path, one device
+        # earlier, and the schedule is now in it.
+        if self.gate_ip:
+            netdev.addr_add(self.gate_ip, self.dev_veth_a)
 
         self._built = [d for d in self.devices() if netdev.exists(d)]
         logger.info("datapath '%s' up: vlan %d vni %d port %d mtu %d, %s map",
@@ -161,6 +177,8 @@ class Datapath:
             "mtu": self.mtu,
             "egress_map": "identity" if self.identity_map else "remark",
             "dscp": self.dscp,
+            "gate_ip": self.gate_ip,
+            "gate_ip_device": self.dev_veth_a,
             "outer_dscp_live": self._live_dscp(),
             "gate_device": self.dev_veth_a,
             "devices": present,
