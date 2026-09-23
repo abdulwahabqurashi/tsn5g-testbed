@@ -40,6 +40,24 @@ def exists(dev):
     return utils.iface_exists(dev)
 
 
+def list_prefixed(prefix):
+    """Every interface whose name starts with `prefix`.
+
+    Used to find devices this package created and then stopped knowing about,
+    which is what happens whenever a class is removed from the config.
+    """
+    proc = _run(["ip", "-o", "link", "show"], check=False)
+    names = []
+    for line in (proc.stdout or "").splitlines():
+        parts = line.split(":", 2)
+        if len(parts) < 2:
+            continue
+        name = parts[1].strip().split("@")[0]
+        if name.startswith(prefix):
+            names.append(name)
+    return names
+
+
 def delete(dev, quiet=True):
     """Remove a device if it is there. Returns True if something went."""
     if not exists(dev):

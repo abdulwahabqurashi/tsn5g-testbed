@@ -125,7 +125,34 @@ class BridgeManager:
             gone += dp.teardown()
             self._paths.pop(n, None)
             self._gate.pop(n, None)
-        return {"removed": gone}
+
+        orphans = self.orphans() if name is None else []
+        for dev in orphans:
+            if netdev.delete(dev, quiet=True):
+                gone.append(dev)
+        if orphans:
+            logger.info("removed %d device(s) belonging to no configured "
+                        "class: %s", len(orphans), ", ".join(orphans))
+        return {"removed": gone, "orphans_removed": orphans}
+
+    def orphans(self):
+        """Devices in this package's namespace that no configured class owns.
+
+        Editing the class list used to leak interfaces: teardown iterated the
+        classes it knew about, so a class deleted from the config left its
+        veth, bridge, vlan and tunnel behind with nothing to ever remove them.
+        They then sat on the box looking like part of the build.
+
+        The `tb-` prefix is this package's alone, so anything carrying it that
+        no current class claims is ours to clean up — and only ours.
+        """
+        keep = set()
+        for spec in self.classes:
+            dp = datapath.Datapath(spec, self.underlay, None, self.remote_ip,
+                                   bearer_mtu=self._bearer_mtu())
+            keep.update(dp.devices())
+        return sorted(d for d in netdev.list_prefixed("tb-")
+                      if d not in keep)
 
     # -- gate ---------------------------------------------------------------
     def apply_gate(self, name, profile, fold=None, dry_run=False, force=False):

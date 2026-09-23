@@ -76,15 +76,18 @@ tsnbridge:
     # on — the inner 802.1Q tag is payload to the RAN. Values follow the same
     # map as vxlan.vlan_map above: 46 (EF) for control, 0 for best effort.
     # When the third class lands, hp_video takes 34 (AF41).
-    - name: ctrl
-      vlan: 60
-      vni: 606
-      dstport: 4789
-      identity_map: true
-      dscp: 46
-      gate_ip: 10.60.0.2/24
-    # Camera 1. AF41 is the standard mark for interactive video; EF above is
-    # kept for GVCP control, which is small and genuinely latency-critical.
+    # One class per camera, and no control class: pathStream1 terminates GigE
+    # Vision at the UE, so GVCP never crosses the bearer — it stays on the wire
+    # between the UE and the camera. A control class here would be an empty
+    # tunnel. (The raw-GigE-Vision design it came from did need one.)
+    #
+    # Two classes means two tunnels, so the gate cannot arbitrate between the
+    # cameras — that is the network's job via DSCP -> QoS flow -> 5QI. If the
+    # modem turns out not to bind uplink to a dedicated flow, the fallback is
+    # ONE tunnel carrying both cameras in two traffic classes, with the gate
+    # doing the work.
+    #
+    # Camera 1. AF41 is the standard mark for interactive video.
     - name: hpvideo
       vlan: 70
       vni: 707
