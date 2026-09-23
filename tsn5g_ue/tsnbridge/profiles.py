@@ -64,6 +64,17 @@ PROFILES = {
                            "slots": [(0x80, 900_000), (0x7F, 100_000)],
                            "guard": True,
                            "desc": "stress: 900us control, 100us the rest"},
+    # The only profile here sized for a *bearer* rather than for the switch.
+    # Every other one was written against a 1 Gbit/s switch port, where a
+    # 1400-byte frame serialises in 11 us and a 150 us window holds thirteen of
+    # them. On this uplink — measured median 53 Mbit/s — the same frame takes
+    # 211 us, so those windows cannot pass one. See feasibility().
+    "bearer-2ms":         {"cycle": 2_000_000,
+                           "slots": [(0x80, 700_000), (0x00, 250_000),
+                                     (0xFF, 1_050_000)],
+                           "guard": True,
+                           "desc": "sized for the 5G uplink: 700us priority, "
+                                   "250us guard, 1050us shared"},
     "cycle-2ms":          {"cycle": 2_000_000,
                            "slots": [(0x80, 300_000), (0x00, 30_000),
                                      (0x10, 600_000), (0xFF, 1_070_000)],
@@ -201,3 +212,93 @@ def describe(name, queue_for_tc, fold=FOLD_SHARED):
         "base_sec": BASE_SEC,
         "base_ns": BASE_NS,
     }
+
+
+#: Bytes of framing below IP on the bearer. wwan0 is raw-IP point-to-point, so
+#: what goes on the air is the IP packet and nothing else — no Ethernet header
+#: to account for.
+BEARER_FRAMING_BYTES = 0
+
+
+def serialisation_us(mtu, uplink_mbps):
+    """Microseconds to push one MTU-sized packet onto a link of this rate.
+
+    The number every gate window has to be compared against. A window shorter
+    than this cannot pass a full packet, which makes the schedule a decoration:
+    the gate opens, nothing fits, the gate closes.
+    """
+    if uplink_mbps <= 0:
+        raise ProfileError("uplink rate must be positive")
+    bits = (int(mtu) + BEARER_FRAMING_BYTES) * 8
+    return bits / (float(uplink_mbps) * 1e6) * 1e6
+
+
+def feasibility(name, uplink_mbps, mtu=1400, queue_for_tc=None,
+                fold=FOLD_SHARED):
+    """Can this profile actually pass traffic at this link rate?
+
+    The failure this exists to prevent is silent. A window too short to hold a
+    packet does not error — the gate opens and shuts on schedule, the class
+    starves, and the result reads as "the gate did not help" rather than "the
+    gate was never given time to". That is an expensive thing to discover after
+    a measurement run.
+
+    A window is judged on what it can carry:
+      under 1 packet   infeasible, the class cannot transmit in it at all
+      under 2 packets  marginal, one packet plus a partial is all it holds
+      otherwise        fine
+
+    Guard bands are exempt from the first two: their whole purpose is to be
+    shut. They are reported separately because a guard shorter than one packet
+    does not actually guard — a transmission started just before it overruns
+    into the next window.
+    """
+    queue_for_tc = queue_for_tc or [Q_BE_VIDEO, Q_CONTROL]
+    cycle_ns, entries, _ = to_taprio(name, queue_for_tc, fold=fold)
+    ser_us = serialisation_us(mtu, uplink_mbps)
+
+    rows, worst = [], "ok"
+    for mask, interval_ns in entries:
+        us = interval_ns / 1000.0
+        packets = us / ser_us
+        if mask == 0:
+            verdict = "guard" if packets >= 1 else "guard-short"
+        elif packets < 1:
+            verdict = "infeasible"
+        elif packets < 2:
+            verdict = "marginal"
+        else:
+            verdict = "ok"
+        if verdict == "infeasible":
+            worst = "infeasible"
+        elif verdict in ("marginal", "guard-short") and worst == "ok":
+            worst = "marginal"
+        rows.append({"gate_mask": mask, "interval_us": round(us, 1),
+                     "packets": round(packets, 2), "verdict": verdict})
+
+    return {
+        "profile": name,
+        "uplink_mbps": float(uplink_mbps),
+        "mtu": int(mtu),
+        "packet_us": round(ser_us, 1),
+        "cycle_us": cycle_ns / 1000.0,
+        "verdict": worst,
+        "windows": rows,
+        "reason": _feasibility_reason(worst, name, ser_us, rows),
+    }
+
+
+def _feasibility_reason(worst, name, ser_us, rows):
+    if worst == "ok":
+        return (f"every open window holds at least two {ser_us:.0f} us "
+                f"packets")
+    bad = [r for r in rows if r["verdict"] in ("infeasible", "marginal",
+                                               "guard-short")]
+    shortest = min(bad, key=lambda r: r["interval_us"])
+    if worst == "infeasible":
+        return (f"profile '{name}' has a {shortest['interval_us']:.0f} us "
+                f"window but one packet takes {ser_us:.0f} us at this link "
+                f"rate, so that class cannot transmit in it at all")
+    return (f"profile '{name}' has a {shortest['interval_us']:.0f} us window "
+            f"against a {ser_us:.0f} us packet — it holds "
+            f"{shortest['packets']:.1f}, so the schedule is coarse")

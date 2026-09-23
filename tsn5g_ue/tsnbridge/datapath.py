@@ -58,6 +58,9 @@ class Datapath:
         self.local_ip = local_ip
         self.remote_ip = remote_ip
         self.mtu = inner_mtu(bearer_mtu)
+        # Kept because a gate window is judged against what goes on the
+        # air, which is the bearer MTU, not the inner one.
+        self.bearer_mtu = int(bearer_mtu)
         self.group_fwd_mask = group_fwd_mask
         self._built = []
 

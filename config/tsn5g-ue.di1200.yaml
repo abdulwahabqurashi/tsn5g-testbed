@@ -59,6 +59,10 @@ tsnbridge:
   enabled: false
   underlay: wwan0
   veth_queues: 8
+  # What a gate window is judged against. Measured median uplink on this
+  # rig, from 667 iperf3 samples on 23 Sep: median 53, range 29-96 Mbit/s.
+  # A nominal link rate would pass profiles the radio cannot actually run.
+  uplink_mbps: 53
   modem_qdisc_limit: 20
   fold: shared
   classes:

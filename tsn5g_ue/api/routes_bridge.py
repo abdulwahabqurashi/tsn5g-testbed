@@ -7,6 +7,7 @@ Reads and dry runs are synchronous.
 """
 
 from ..tsnbridge import profiles as bridge_profiles
+from ..tsnbridge.manager import BridgeError
 from .router import ApiError
 
 
@@ -59,8 +60,17 @@ def register(router):
         fold = req.opt("fold")
         if fold and fold not in bridge_profiles.FOLD_CHOICES:
             raise ApiError(400, f"unknown fold '{fold}'")
-        return _bridge(req).apply_gate(name, profile, fold=fold,
-                                       dry_run=bool(req.opt("dry_run")))
+        # force lets an operator apply a profile the arithmetic says cannot
+        # work — for a deliberate negative control, not for routine use.
+        try:
+            return _bridge(req).apply_gate(name, profile, fold=fold,
+                                           dry_run=bool(req.opt("dry_run")),
+                                           force=bool(req.opt("force")))
+        except BridgeError as exc:
+            # Choosing a profile this link cannot run is a request problem, not
+            # a server fault. A 500 here would send an operator looking for a
+            # bug instead of reading the sentence that tells them what to pick.
+            raise ApiError(400, str(exc)) from None
 
     @router.delete("/api/bridge/gate")
     def bridge_gate_clear(req):

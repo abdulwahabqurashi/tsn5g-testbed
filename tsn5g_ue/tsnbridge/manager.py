@@ -29,6 +29,10 @@ class BridgeManager:
         self.classes = cfg.get("classes") or []
         self.veth_queues = int(cfg.get("veth_queues", 8))
         self.shallow_limit = int(cfg.get("modem_qdisc_limit", 20))
+        # What a gate window is measured against. Default is the measured
+        # median uplink on this rig, not a link-layer nominal — a window
+        # is feasible at the rate the radio actually gives you.
+        self.uplink_mbps = float(cfg.get("uplink_mbps", 53))
         # Mirrors modem.egress_queue so the check compares against what
         # the bearer was actually asked to apply.
         _mq = ((config.modem if config and hasattr(config, "modem") else {}) or {})
@@ -119,16 +123,35 @@ class BridgeManager:
         return {"removed": gone}
 
     # -- gate ---------------------------------------------------------------
-    def apply_gate(self, name, profile, fold=None, dry_run=False):
+    def apply_gate(self, name, profile, fold=None, dry_run=False, force=False):
         dp = self._paths.get(name)
         if dp is None:
             raise BridgeError(
                 f"'{name}' is not built, so there is no device to gate. "
                 f"Build the data path first.")
+
+        # A window shorter than one packet fails silently: the gate opens and
+        # shuts on schedule, the class starves, and the run reads as "the gate
+        # did not help" rather than "the gate was never given time to". Refuse
+        # it with the arithmetic rather than let it be measured.
+        feas = profiles.feasibility(profile, self.uplink_mbps,
+                                    mtu=dp.bearer_mtu or 1400,
+                                    queue_for_tc=gate.DEFAULT_CLASS_QUEUES,
+                                    fold=fold or self.fold)
+        if feas["verdict"] == "infeasible" and not force:
+            raise BridgeError(
+                feas["reason"] + f". Every window has to hold at least one "
+                f"{feas['packet_us']:.0f} us packet. Use 'bearer-2ms', which "
+                f"is sized for this link, or pass force to apply it anyway.")
+        if feas["verdict"] == "marginal":
+            logger.warning("gate profile '%s' on %s: %s",
+                           profile, name, feas["reason"])
+
         res = gate.apply(dp.dev_veth_a, profile=profile,
                          fold=fold or self.fold, dry_run=dry_run)
         if not dry_run:
             self._gate[name] = profile
+        res["feasibility"] = feas
         return res
 
     def clear_gate(self, name):
@@ -149,7 +172,28 @@ class BridgeManager:
     def profiles(self, fold=None):
         qmap = gate.DEFAULT_CLASS_QUEUES
         f = fold or self.fold
-        return [profiles.describe(n, qmap, fold=f) for n in profiles.names()]
+        out = []
+        for n in profiles.names():
+            d = profiles.describe(n, qmap, fold=f)
+            # Every profile carries its own verdict, so the UI can grey out the
+            # ones this link cannot run instead of offering them and failing.
+            d["feasibility"] = profiles.feasibility(
+                n, self.uplink_mbps, mtu=self.bearer_mtu(), queue_for_tc=qmap,
+                fold=f)
+            out.append(d)
+        return out
+
+    def bearer_mtu(self):
+        """What a packet actually is on the air, for the feasibility maths.
+
+        The bearer MTU (1400), not the inner MTU (1346): serialisation happens
+        on wwan0, after encapsulation, so judging a window against the inner
+        size would understate every packet by the 54 bytes of overhead.
+        """
+        for dp in self._paths.values():
+            if dp.bearer_mtu:
+                return dp.bearer_mtu
+        return 1400
 
     def status(self):
         paths = []
