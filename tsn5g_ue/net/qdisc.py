@@ -52,6 +52,14 @@ POLICIES = (SHALLOW, PRIO, DEFAULT)
 #: about 4.5 ms — a couple of gate cycles.
 DEFAULT_LIMIT = 20
 
+#: skb->priority -> prio band, indexed by priority 0-15. Band 0 is served
+#: first. Priorities 4 (802.1Q Video) and 7 (Network Control) get band 0;
+#: everything else, best effort included, gets band 1. This mirrors the gate's
+#: priority map, so a stream keeps the same standing at the bottleneck that it
+#: had at the gate — the two agreeing is the point, and a stream that is
+#: protected upstream and best effort downstream is protected nowhere.
+DEFAULT_PRIOMAP = [1, 1, 1, 1, 0, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1]
+
 
 class QdiscError(RuntimeError):
     pass
@@ -72,7 +80,7 @@ def read(dev):
     return {"kind": kind, "limit": int(lm.group(1)) if lm else None, "raw": first}
 
 
-def apply(dev, policy=SHALLOW, limit=DEFAULT_LIMIT):
+def apply(dev, policy=SHALLOW, limit=DEFAULT_LIMIT, priomap=None):
     """Put `policy` on `dev`'s root and prove it landed.
 
     Returns the live queue as `read` reports it. Raises if what the kernel
@@ -94,9 +102,18 @@ def apply(dev, policy=SHALLOW, limit=DEFAULT_LIMIT):
             raise QdiscError(f"{dev}: could not set pfifo limit {limit}: "
                              f"{(proc.stderr or '').strip()}")
     elif policy == PRIO:
-        # Three bands, the kernel's default priomap. skb->priority is already
-        # set by the CLASSIFY rules, so this needs no filters to work.
+        # Bands by skb->priority, which the CLASSIFY rules already set, so no
+        # filters are needed. The priomap is NOT left at the kernel default:
+        # that default maps priority 0 and priority 4 to the same band, so a
+        # best-effort stream and a video stream would be queued together and
+        # the qdisc would separate nothing. Measured default, for the record:
+        #   priomap 1 2 2 2 1 2 0 0 1 1 1 1 1 1 1 1
+        pm = list(priomap or DEFAULT_PRIOMAP)
+        if len(pm) != 16:
+            raise QdiscError("a prio priomap needs exactly 16 entries, one "
+                             "per skb->priority value 0-15")
         proc = utils.tc("qdisc", "replace", "dev", dev, "root", "prio",
+                        "bands", "3", "priomap", *[str(x) for x in pm],
                         check=False)
         if proc.returncode != 0:
             raise QdiscError(f"{dev}: could not set prio: "

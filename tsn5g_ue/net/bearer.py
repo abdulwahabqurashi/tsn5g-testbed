@@ -68,6 +68,7 @@ class BearerManager:
         q = cfg.get("egress_queue") or {}
         self.queue_policy = q.get("policy", qdisc.SHALLOW)
         self.queue_limit = int(q.get("limit", qdisc.DEFAULT_LIMIT))
+        self.queue_priomap = q.get("priomap")
         self.qmi = qmi
         self.modem = modem
         self.events = events
@@ -314,7 +315,8 @@ class BearerManager:
         # the system default, and a queue that reverted silently is how a
         # correctly configured gate comes to measure nothing.
         try:
-            live = qdisc.apply(self.iface, self.queue_policy, self.queue_limit)
+            live = qdisc.apply(self.iface, self.queue_policy, self.queue_limit,
+                               priomap=self.queue_priomap)
             say(f"egress queue {self.queue_policy} -> {live['raw']}")
         except qdisc.QdiscError as exc:
             # Not fatal: the bearer still carries traffic. But it is loud,
