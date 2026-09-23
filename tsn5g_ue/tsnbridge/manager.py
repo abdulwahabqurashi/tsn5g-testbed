@@ -33,6 +33,11 @@ class BridgeManager:
         # median uplink on this rig, not a link-layer nominal — a window
         # is feasible at the rate the radio actually gives you.
         self.uplink_mbps = float(cfg.get("uplink_mbps", 53))
+        # The join between the PCP a stream is marked with and the gate
+        # window it lands in. Configurable because it has to agree with
+        # the classes, and a mismatch produces a schedule that applies
+        # perfectly and separates nothing.
+        self.prio_map = cfg.get("prio_map")
         # Mirrors modem.egress_queue so the check compares against what
         # the bearer was actually asked to apply.
         _mq = ((config.modem if config and hasattr(config, "modem") else {}) or {})
@@ -148,6 +153,7 @@ class BridgeManager:
                            profile, name, feas["reason"])
 
         res = gate.apply(dp.dev_veth_a, profile=profile,
+                         prio_map=self.prio_map,
                          fold=fold or self.fold, dry_run=dry_run)
         if not dry_run:
             self._gate[name] = profile
@@ -218,6 +224,14 @@ class BridgeManager:
             "inner_mtu": datapath.inner_mtu(self._bearer_mtu()),
             "modem_tx_queues": netdev.tx_queues(self.underlay),
             "fold": self.fold,
+            "uplink_mbps": self.uplink_mbps,
+            # Which PCP reaches which gate window. Shown rather than assumed:
+            # this is the join between marking and scheduling, and a wrong map
+            # is invisible in every other field.
+            "prio_map": gate.prio_map_table(self.prio_map,
+                                            len(gate.DEFAULT_CLASS_QUEUES)),
+            "egress_queue": qdisc.describe(self.underlay, self.queue_policy,
+                                           self.shallow_limit),
             "classes": paths,
             "rules": mark.live(),
         }

@@ -26,9 +26,58 @@ logger = logging.getLogger("tsn5g-ue.tsnbridge.gate")
 #: so the default two-class bridge is tc0 best effort, tc1 priority.
 DEFAULT_CLASS_QUEUES = [profiles.Q_BE_VIDEO, profiles.Q_CONTROL]
 
-#: skb->priority -> traffic class. Priority 7 is the only one that reaches tc1,
-#: everything else is best effort, which is the two-class split stated plainly.
-DEFAULT_PRIO_MAP = [0, 0, 0, 0, 0, 0, 0, 1]
+#: skb->priority -> traffic class, one entry per 802.1p priority.
+#:
+#: Priority 4 is "Video, <100 ms latency and jitter" in IEEE 802.1Q and is what
+#: a priority camera stream carries; priority 7 is Network Control and is what
+#: GVCP carries. Both belong in the protected class, so both map to tc1 and
+#: everything else is best effort.
+#:
+#: The previous map sent only priority 7 to tc1, which meant a camera marked
+#: PCP 4 landed in tc0 beside the best-effort camera — two streams in one
+#: traffic class, and a gate with nothing to separate. The gate would have
+#: applied cleanly and changed nothing, which is the failure this package
+#: exists to make impossible.
+DEFAULT_PRIO_MAP = [0, 0, 0, 0, 1, 0, 0, 1]
+
+
+def resolve_prio_map(prio_map=None, num_tc=2):
+    """The map to use, validated against the number of traffic classes.
+
+    Returns (map, notes). `notes` names anything an operator should know
+    before trusting a measurement — chiefly a map that cannot separate the
+    classes it is being asked to separate.
+    """
+    pm = list(prio_map or DEFAULT_PRIO_MAP)
+    if len(pm) != 8:
+        raise GateError(
+            f"the priority map needs exactly 8 entries, one per 802.1p "
+            f"priority; got {len(pm)}")
+    if max(pm) >= num_tc:
+        raise GateError(
+            f"the priority map refers to traffic class {max(pm)} but only "
+            f"{num_tc} are defined")
+    notes = []
+    if len(set(pm)) == 1:
+        notes.append(
+            f"every 802.1p priority maps to traffic class {pm[0]}, so the gate "
+            f"has nothing to separate — every stream shares one class no "
+            f"matter how it is marked")
+    return pm, notes
+
+
+def prio_map_table(prio_map=None, num_tc=2):
+    """Which priority lands in which class, for the UI and for status.
+
+    Worth showing rather than inferring: this map is the join between the PCP
+    a stream is marked with and the gate window it ends up in, and getting it
+    wrong produces a schedule that applies perfectly and does nothing.
+    """
+    pm, notes = resolve_prio_map(prio_map, num_tc)
+    return {"map": pm,
+            "by_priority": [{"priority": i, "traffic_class": tc}
+                            for i, tc in enumerate(pm)],
+            "notes": notes}
 
 
 class GateError(RuntimeError):
@@ -49,17 +98,11 @@ def _base_time(base_sec=None, base_ns=None):
 
 def build_command(dev, entries, cycle_ns, prio_map=None, class_queues=None,
                   base_sec=None, base_ns=None, handle="100"):
-    prio_map = prio_map or DEFAULT_PRIO_MAP
     class_queues = class_queues or DEFAULT_CLASS_QUEUES
     num_tc = len(class_queues)
-
-    if len(prio_map) != 8:
-        raise GateError("the priority map needs exactly 8 entries, one per "
-                        "802.1p priority")
-    if max(prio_map) >= num_tc:
-        raise GateError(
-            f"the priority map refers to traffic class {max(prio_map)} but only "
-            f"{num_tc} are defined")
+    prio_map, notes = resolve_prio_map(prio_map, num_tc)
+    for note in notes:
+        logger.warning("priority map: %s", note)
 
     argv = ["root", "handle", handle, "taprio",
             "num_tc", str(num_tc),
@@ -109,6 +152,7 @@ def apply(dev, profile=None, entries=None, cycle_ns=None, prio_map=None,
                 dev, profile, cycle_ns, len(entries))
     return {"ok": True, "dev": dev, "profile": profile, "cycle_ns": cycle_ns,
             "entries": len(entries), "tx_queues": queues,
+            "prio_map": prio_map_table(prio_map, len(class_queues)),
             "applied_at": time.time()}
 
 

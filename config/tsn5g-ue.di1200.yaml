@@ -63,6 +63,12 @@ tsnbridge:
   # rig, from 667 iperf3 samples on 23 Sep: median 53, range 29-96 Mbit/s.
   # A nominal link rate would pass profiles the radio cannot actually run.
   uplink_mbps: 53
+  # skb->priority -> traffic class, one entry per 802.1p priority.
+  # 4 is 802.1Q "Video" and is what a priority camera carries; 7 is
+  # Network Control and is what GVCP carries. Both belong in the protected
+  # class. Everything else, Camera 2 included, is best effort.
+  #        PCP: 0  1  2  3  4  5  6  7
+  prio_map: [0, 0, 0, 0, 1, 0, 0, 1]
   modem_qdisc_limit: 20
   fold: shared
   classes:
