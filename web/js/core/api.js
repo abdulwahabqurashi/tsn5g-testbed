@@ -241,6 +241,13 @@ export function createApi({ base = "", timeout = 8000, fetchImpl, onCall } = {})
       up: (body, o) => POST("/api/bearer/up", body, o),
       down: (body, o) => POST("/api/bearer/down", body, o),
       cycle: (body, o) => POST("/api/bearer/cycle", body, o),
+      // Counts each DSCP as it leaves the bearer, after encapsulation. The
+      // outer DSCP is what uplink QoS flow binding matches on, so this is the
+      // evidence that the marking reaches the wire at all.
+      dscpAudit: (o) => GET("/api/bearer/dscp-audit", o),
+      dscpAuditStart: (body, o) => POST("/api/bearer/dscp-audit", body ?? {}, o),
+      dscpAuditStop: (o) => request("DELETE", "/api/bearer/dscp-audit",
+                                    { ...o, body: {} }),
     },
 
     routing: {
@@ -282,6 +289,8 @@ export function createApi({ base = "", timeout = 8000, fetchImpl, onCall } = {})
       teardown: (body, o) => POST("/api/bridge/teardown", body, o),
       gate: (body, o) => POST("/api/bridge/gate", body, o),
       clearGate: (body, o) => request("DELETE", "/api/bridge/gate", { ...o, body }),
+      layouts: (o) => GET("/api/bridge/layouts", o),
+      setLayout: (body, o) => POST("/api/bridge/layout", body, o),
       addRule: (body, o) => POST("/api/bridge/rules", body, o),
       delRule: (body, o) => request("DELETE", "/api/bridge/rules", { ...o, body }),
     },

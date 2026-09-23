@@ -25,6 +25,12 @@ import { nn, ns } from "../../core/format.js";
 import { palette } from "../../ui/tokens.js";
 import { badge, btnRow, button, card, field, kpi, row, select, table } from "../../ui/widgets.js";
 
+const DSCP_NAMES = {
+  0: "Best Effort", 8: "CS1", 10: "AF11", 16: "CS2", 18: "AF21",
+  24: "CS3", 26: "AF31", 32: "CS4", 34: "AF41 — interactive video",
+  36: "AF42", 40: "CS5", 46: "EF — expedited forwarding", 48: "CS6", 56: "CS7",
+};
+
 const FOLD_HELP = {
   shared: "the orphaned window opens for every class",
   priority: "the top class inherits it",
@@ -39,6 +45,7 @@ export default defineView({
     const classBody = h("div");
     const gateBody = h("div");
     const ruleBody = h("div");
+    const dscpBody = h("div");
     const logPane = h("div", { class: "log logpane", style: { "max-height": "180px" } });
     const logWrap = h("details", { class: "raw-output" },
       h("summary", { class: "hint", text: "Job output" }), logPane);
@@ -59,6 +66,11 @@ export default defineView({
           h("h3", { text: "Traffic classes" }),
           h("span", { class: "hint", text: "one data path each" })),
         classBody),
+      h("section", { class: "card col12" },
+        h("div", { class: "card-head" },
+          h("h3", { text: "Outer DSCP on the wire" }),
+          h("span", { class: "hint", text: "what the 5G core can classify on" })),
+        dscpBody),
       h("section", { class: "card col12" },
         h("div", { class: "card-head" },
           h("h3", { text: "Classification" }),
@@ -96,12 +108,40 @@ export default defineView({
       const details = h("div", { class: "detail-list" });
       details.appendChild(row("Bearer MTU", s.bearer_mtu));
       details.appendChild(row("Core", s.remote_ip, { mono: true }));
+
+      // The queue the gate feeds into. fq_codel is both far deeper than a gate
+      // cycle and deliberately flow-fair, so it cancels priority rather than
+      // diluting it — a mismatch here makes every scheduling result suspect.
+      const q = s.egress_queue || {};
+      details.appendChild(row("Modem queue",
+        badge(q.kind ? `${q.kind}${q.limit ? ` ${q.limit}p` : ""}` : "unknown",
+              q.matches ? "green" : "amber")));
+
+      // Which 802.1p priority reaches which gate window. Wrong here and the
+      // schedule applies perfectly and separates nothing.
+      const pm = s.prio_map || {};
+      if (pm.map) {
+        details.appendChild(row("Priority map",
+          h("span", { class: "mono", text: pm.map.join(" ") })));
+      }
+      details.appendChild(row("Uplink assumed", `${s.uplink_mbps ?? "?"} Mbit/s`));
       // The number that decides whether a gate can exist on the modem at all.
       details.appendChild(row("Modem TX queues",
         badge(String(s.modem_tx_queues ?? "?"),
               (s.modem_tx_queues || 0) > 1 ? "green" : "amber")));
       overviewBody.appendChild(details);
 
+      if (q.matches === false) {
+        overviewBody.appendChild(h("p", { class: "section-hint" },
+          `${s.underlay} is running ${q.kind}, not the configured `
+          + `${q.policy}. A queue that is deep or flow-fair overrides the gate, `
+          + "so anything measured now is the queue's decision rather than "
+          + "yours. It is re-applied on the next data call."));
+      }
+      if (pm.notes && pm.notes.length) {
+        overviewBody.appendChild(h("p", { class: "section-hint",
+          text: pm.notes.join(" ") }));
+      }
       if ((s.modem_tx_queues || 0) < 2) {
         overviewBody.appendChild(h("p", { class: "hint" },
           `${s.underlay} has a single TX queue, so a gate schedule cannot be `
@@ -112,6 +152,41 @@ export default defineView({
         overviewBody.appendChild(h("p", { class: "section-hint" },
           "Disabled in the configuration. Building still works from here; the "
           + "flag only governs whether it comes up on its own."));
+      }
+
+      // Which shape the data path takes. One tunnel per camera lets the
+      // NETWORK prioritise by 5QI; one shared tunnel lets the gate do it. The
+      // right answer depends on whether the modem binds uplink to a dedicated
+      // QoS flow, which is a core and RAN question, so both are kept and this
+      // selects between them.
+      const layouts = s.layouts || [];
+      if (layouts.length > 1) {
+        const active = layouts.find((l) => l.active);
+        const sel = select(
+          layouts.map((l) => ({ value: l.name, label: l.name })),
+          s.layout,
+          async (name) => {
+            if (name === s.layout) return;
+            const target = layouts.find((l) => l.name === name);
+            const ok = await confirm({
+              title: `Switch to "${name}"?`,
+              body: `${target?.description || ""} The current layout is torn `
+                  + "down first — its devices are not reused — and nothing is "
+                  + "rebuilt until you press Build.",
+              confirmLabel: "Switch",
+            });
+            if (!ok) { sel.value = s.layout; return; }
+            try {
+              await view.api.bridge.setLayout({ name }, { signal: view.signal });
+              toast(`Layout is now ${name}. Build to bring it up.`, "ok");
+              await refresh();
+            } catch (err) {
+              sel.value = s.layout;
+              toast(err.message, "err");
+            }
+          }, { class: "mini-select" });
+        overviewBody.appendChild(h("div", { class: "kpis" },
+          field("Class layout", sel, active?.description || "")));
       }
 
       overviewBody.appendChild(btnRow(
@@ -157,13 +232,20 @@ export default defineView({
         return;
       }
       classBody.appendChild(table(
-        ["Class", "VLAN", "VNI", "UDP port", "Map", "Gate device", "Queues",
-         "Gate", "State"],
+        ["Class", "VLAN", "VNI", "UDP port", "DSCP", "Map", "Gate device",
+         "Queues", "Gate", "State"],
         list.map((c) => {
           const g = c.gate || {};
           return [
             h("span", { class: "cell-name", text: c.name }),
             c.vlan, c.vni, c.dstport,
+            // Configured vs what the kernel actually has on the tunnel. The
+            // first DSCP implementation here configured cleanly and wrote
+            // nothing, so the live value is the one worth showing.
+            c.dscp == null
+              ? badge("unset", "gray")
+              : badge(String(c.dscp),
+                      c.outer_dscp_live === c.dscp ? "green" : "amber"),
             c.egress_map,
             h("span", { class: "mono", text: c.gate_device }),
             // Fewer queues than classes and the schedule is unexpressible.
@@ -197,7 +279,16 @@ export default defineView({
 
       const clsSel = select(built.map((c) => ({ value: c.name, label: c.name })),
                             built[0].name, () => {}, { class: "mini-select" });
-      const profSel = select(profiles.map((p) => ({ value: p.name, label: p.name })),
+      // A window shorter than one packet cannot pass one: the gate opens, the
+      // class starves, and the run reads as "the gate did not help". Labelled
+      // here so an unusable profile is visible before it is applied, not after
+      // a measurement has been wasted on it.
+      const profSel = select(profiles.map((p) => {
+        const v = p.feasibility?.verdict;
+        const tag = v === "infeasible" ? "  — too short for this link"
+          : v === "marginal" ? "  — coarse at this link rate" : "";
+        return { value: p.name, label: p.name + tag };
+      }),
                              profiles[0]?.name, () => paintWindows(),
                              { class: "mini-select" });
       const foldSel = select(["shared", "priority", "closed"], fold,
@@ -382,6 +473,68 @@ export default defineView({
       }
     }
 
+    // ---- outer DSCP ---------------------------------------------------------
+    // The outer DSCP is the input to uplink QoS flow binding: the core gives
+    // the UE QoS rules whose packet filters match the ToS byte, and a match
+    // binds the packet to a QoS flow and so to a 5QI. Configuration claiming a
+    // value is not evidence it reaches the wire — this codebase already
+    // shipped one DSCP implementation that configured cleanly and wrote
+    // nothing. These counters read the byte after encapsulation.
+    async function paintDscp() {
+      clear(dscpBody);
+      let audit = null;
+      try {
+        audit = await view.api.bearer.dscpAudit({ signal: view.signal });
+      } catch (err) {
+        if (err instanceof ApiError && err.isAborted) return;
+        dscpBody.appendChild(h("p", { class: "muted", text: err.message }));
+        return;
+      }
+
+      const counts = audit?.by_dscp || {};
+      const keys = Object.keys(counts).sort((a2, b2) => Number(a2) - Number(b2));
+      if (!keys.length) {
+        dscpBody.appendChild(h("p", { class: "muted" },
+          "Not counting yet. Start the audit and send some traffic — each "
+          + "configured DSCP is counted as it leaves the bearer, after "
+          + "encapsulation, which is the only place the question means "
+          + "anything."));
+      } else {
+        dscpBody.appendChild(table(["DSCP", "Meaning", "Packets seen"],
+          keys.map((k) => [
+            h("span", { class: "mono", text: k }),
+            DSCP_NAMES[k] || "—",
+            h("span", { class: "mono", text: nn(counts[k]) }),
+          ])));
+        dscpBody.appendChild(h("p", { class: "hint" },
+          "DSCP 0 also carries anything else the bearer sends unmarked, so it "
+          + "over-counts. The marked values are the ones that answer the "
+          + "question."));
+      }
+
+      dscpBody.appendChild(btnRow(
+        button(keys.length ? "Restart counters" : "Start counting", {
+          kind: "primary",
+          onclick: async () => {
+            try {
+              await view.api.bearer.dscpAuditStart({}, { signal: view.signal });
+              toast("Counting every configured DSCP", "ok");
+              await paintDscp();
+            } catch (err) { toast(err.message, "err"); }
+          },
+        }),
+        button("Stop", {
+          disabled: !keys.length,
+          onclick: async () => {
+            try {
+              await view.api.bearer.dscpAuditStop({ signal: view.signal });
+              toast("Counters removed", "ok");
+              await paintDscp();
+            } catch (err) { toast(err.message, "err"); }
+          },
+        })));
+    }
+
     // ---- data ---------------------------------------------------------------
     async function reloadProfiles() {
       try {
@@ -401,6 +554,7 @@ export default defineView({
         paintClasses(state);
         paintGate(state);
         paintRules(state);
+        await paintDscp();
       } catch (err) {
         if (err instanceof ApiError && err.isAborted) return;
         clear(overviewBody);

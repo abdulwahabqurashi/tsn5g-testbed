@@ -511,6 +511,48 @@ def main():
         check("the hardware-timestamping requirement is explained",
               "hardware timestamping" in text)
 
+        # ---- advanced/bridge ----------------------------------------------
+        # Every check here covers something that was API-only until the
+        # operator asked whether the UI had kept up. It had not.
+        print("=== advanced/bridge ===")
+        m.script("window.location.hash = '#/bridge';")
+        m.wait_for("window.__tsn.store.get().ui.route === 'bridge'",
+                   timeout=15, label="bridge route")
+        m.wait_for("document.getElementById('content').textContent.length > 200",
+                   timeout=25, label="bridge content")
+        text = m.script("return document.getElementById('content').textContent;")
+        btns = m.script("return [...document.querySelectorAll('.btn')]"
+                        ".map(b => b.textContent.trim());")
+        sels = m.script("return [...document.querySelectorAll('select')]"
+                        ".map(s => [...s.options].map(o => o.value));")
+        flat = [v for group in sels for v in group]
+
+        check("bridge view mounted", m.script(CARD_COUNT) >= 4,
+              f"{m.script(CARD_COUNT)} cards")
+        # The queue on the modem overrides the gate entirely when it is deep or
+        # flow-fair, so its state belongs on screen and not in a log line.
+        check("the modem's egress queue is shown", "Modem queue" in text)
+        # Which 802.1p priority reaches which gate window. A wrong map applies
+        # cleanly and separates nothing, and is invisible in every other field.
+        check("the priority map is shown", "Priority map" in text)
+        # Gate windows are judged against the rate the radio actually gives.
+        check("the assumed uplink rate is shown", "Uplink assumed" in text)
+        # Configuration claiming a DSCP is not evidence it reached the header;
+        # the first implementation here wrote none at all.
+        check("outer DSCP is surfaced on the wire",
+              "Outer DSCP on the wire" in text)
+        check("the DSCP audit can be started",
+              any("count" in b.lower() for b in btns), f"buttons were {btns}")
+        # Both class layouts are kept because the core/RAN answer decides which
+        # is right; the operator has to be able to pick without editing YAML.
+        check("both class layouts are selectable",
+              "per-camera-tunnel" in flat and "shared-tunnel" in flat,
+              f"select options were {flat}")
+        # A window shorter than one packet cannot pass one. Saying so in the
+        # picker costs nothing; discovering it after a run costs a day.
+        check("unusable gate profiles are labelled as such",
+              "too short for this link" in text or "coarse at this link" in text)
+
         # ---- Phase 7: diagnostics (the diag.sh successor) ------------------
         print("=== diagnostics ===")
         m.script("window.location.hash = '#/diagnostics';")
