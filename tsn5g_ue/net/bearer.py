@@ -413,6 +413,96 @@ class BearerManager:
                 logger.debug("bearer change hook failed", exc_info=True)
 
     # -- teardown -----------------------------------------------------------
+    def rebuild(self, ctx=None, apn=None, settle=5, register_wait=45):
+        """Tear the PDU SESSION down, not just the data call, then bring it back.
+
+        This exists because `down` does not do it. `down` calls
+        `--wds-stop-network`, which stops the host-side data call while the
+        modem keeps its PDN context; `up` then resumes the same session. The UE
+        pings perfectly throughout, which is exactly what makes it dangerous.
+
+        The core reads QoS configuration — subscriber 5QI, PCC rules, packet
+        filters — ONLY at PDU session establishment. So after any QoS change on
+        the core, a down/up leaves the UE carrying the previous configuration
+        while looking entirely healthy. Two rounds of core-side testing were
+        lost to this before it was understood.
+
+        A genuine rebuild needs full deregistration, which is what AT+CFUN=0
+        does: the modem drops its PDN context, and re-registering establishes a
+        new session that reads the current configuration.
+
+        The only reliable confirmation is on the core, not here: the SMF ledger
+        showing "Removed -> 0" then "Added -> 1". The UE being reachable proves
+        nothing, because it is reachable either way.
+        """
+        def step(name, detail=None):
+            if ctx:
+                ctx.step(name, detail)
+
+        def say(line):
+            logger.info("  %s", line)
+            if ctx:
+                ctx.log(line)
+
+        step("stop-call", "stopping the data call")
+        self.down(ctx=None)
+
+        step("deregister", "AT+CFUN=0 — dropping the PDN context")
+        say("the data call alone does not release the session; deregistering")
+        self._cfun(0, say)
+        time.sleep(settle)
+
+        step("register", "AT+CFUN=1 — re-attaching")
+        self._cfun(1, say)
+
+        # Registration is not instant and starting the call too early fails in
+        # a way that looks like a bearer fault rather than a timing one.
+        started = time.time()
+        deadline = started + register_wait
+        registered = False
+        while time.time() < deadline:
+            try:
+                serving = self.qmi.serving_system() or {}
+                # `registered` is the boolean this QMI wrapper exposes;
+                # `registration_state` is the raw string beside it. An earlier
+                # version of this loop read a key that does not exist, so it
+                # never matched and always burned the full timeout before
+                # continuing anyway — slow, and silent about why.
+                if serving.get("registered"):
+                    registered = True
+                    say(f"registered after {int(time.time() - started)}s "
+                        f"({serving.get('operator') or 'unknown operator'})")
+                    break
+            except QmiError:
+                pass
+            time.sleep(2)
+        if not registered:
+            say(f"still not registered after {register_wait}s; starting the "
+                f"call anyway, which will fail loudly if the radio is not back")
+
+        step("start-call", "establishing a new PDU session")
+        result = self.up(ctx=ctx, apn=apn)
+        say("session rebuilt — confirm on the core that the SMF ledger shows "
+            "Removed -> 0 then Added -> 1 before treating any QoS change as live")
+        return result
+
+    def _cfun(self, value, say):
+        """AT+CFUN, through the bus that owns the port.
+
+        Not a raw write to a tty: the AT port number moves between boots and
+        ModemBus is the single owner, so going around it races whatever else is
+        talking to the modem.
+        """
+        if self.modem is None:
+            raise BearerError(
+                "no modem bus, so the radio cannot be cycled — a session "
+                "rebuild needs AT+CFUN and there is nothing to send it on")
+        say(f"AT+CFUN={value}")
+        # High priority through the bus, because a rebuild must not queue
+        # behind a routine signal poll while the radio is half down.
+        self.modem.bus.command(f"AT+CFUN={value}", timeout=20,
+                               reason="pdu session rebuild")
+
     def down(self, ctx=None):
         """Stop the call using the saved handle, then clear the interface."""
         def say(line):

@@ -294,6 +294,16 @@ def register_all(jobs, controller):
                   explain="Stops the 5G data call. Anything using the link "
                           "loses it, and the next call gets a different "
                           "address.")
+    def bearer_rebuild(ctx):
+        return controller.bearer.rebuild(ctx=ctx, apn=ctx.params.get("apn"))
+
+    jobs.register("bearer.rebuild", bearer_rebuild, LANE_BEARER, confirm=True,
+                  explain="Deregisters the modem (AT+CFUN=0/1) and builds a NEW "
+                          "PDU session. This is the only way a QoS change made "
+                          "on the core takes effect — a plain cycle keeps the "
+                          "modem's PDN context, so the UE quietly carries the "
+                          "old configuration while looking healthy. Takes about "
+                          "a minute and the link is down throughout.")
     jobs.register("bearer.cycle", bearer_cycle, LANE_BEARER, confirm=True,
                   explain="Stops and restarts the data call. The UE address "
                           "will change, so policy routing pinned to the old "

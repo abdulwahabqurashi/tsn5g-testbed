@@ -52,6 +52,19 @@ def register(router):
         return req.ctx.submit_job("bearer.cycle",
                                   {"confirm": req.confirmed, "apn": req.opt("apn")})
 
+    @router.post("/api/bearer/rebuild")
+    def rebuild(req):
+        """Build a NEW PDU session, not just a new data call.
+
+        The core reads QoS configuration only at session establishment, and
+        /api/bearer/cycle does not establish one — it stops the data call and
+        resumes the same session. After any QoS change on the core this is the
+        endpoint that makes it live.
+        """
+        return req.ctx.submit_job("bearer.rebuild",
+                                  {"confirm": req.confirmed,
+                                   "apn": req.opt("apn")})
+
     @router.post("/api/bearer/dscp-audit")
     def dscp_audit_install(req):
         """Count each DSCP as it leaves the bearer, after encapsulation.
