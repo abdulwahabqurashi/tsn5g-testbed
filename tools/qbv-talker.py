@@ -40,17 +40,27 @@ def tai_ns():
     return time.clock_gettime_ns(time.CLOCK_TAI)
 
 
+def _tight_timers():
+    """1 ns timer slack: time.sleep() then wakes within ~50 us instead of ~50 us + slack."""
+    try:
+        import ctypes
+        ctypes.CDLL(None, use_errno=True).prctl(29, 1, 0, 0, 0)   # PR_SET_TIMERSLACK
+    except Exception:
+        pass
+
+
 def sleep_until(t_ns):
-    """Coarse sleep, then spin the last 300 us: ~10-50 us accuracy, no root needed."""
-    while True:
-        left = t_ns - tai_ns()
-        if left <= 0:
-            return
-        if left > 400_000:
-            time.sleep((left - 300_000) / 1e9)
+    """Sleep, never spin. A busy-wait here starved the kernel's receive backlog on
+    this CPU (a veth delivers packets on the sending CPU), which silently dropped
+    ~70 % of this talker's packets while a flood ran: the first live run measured
+    the tool, not the radio. Sleeping costs ~50 us of accuracy, against a 4 ms cycle."""
+    left = t_ns - tai_ns()
+    if left > 0:
+        time.sleep(left / 1e9)
 
 
 def send(a):
+    _tight_timers()
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     if a.sport:
         s.bind(("0.0.0.0", a.sport))
