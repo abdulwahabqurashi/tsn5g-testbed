@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the TSN testbed health check every 5 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Unit=tsn-health.service
+
+[Install]
+WantedBy=timers.target

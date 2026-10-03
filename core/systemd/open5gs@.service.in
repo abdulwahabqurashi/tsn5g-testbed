@@ -1,0 +1,19 @@
+# Rendered from core/systemd/open5gs@.service.in by install.sh core
+# One instance per network function: open5gs@nrf, open5gs@amf, ... all pulled
+# in by open5gs.target. Replaces run5gs.sh, which started them by hand (on the
+# first rig nothing started the core at boot except the health timer).
+[Unit]
+Description=Open5GS %i (TSN/5G-ACIA fork)
+PartOf=open5gs.target
+After=network-online.target mongod.service tsn5g-core-net.service
+Wants=mongod.service
+Requires=tsn5g-core-net.service
+
+[Service]
+Type=simple
+ExecStartPre=/bin/mkdir -p /var/local/log/open5gs
+ExecStart=${PREFIX}/build/open5gs/src/%i/open5gs-%id -c ${ETC_DIR}/open5gs/%i.yaml
+# NFs that start before the NRF retry registration by themselves.
+Restart=always
+RestartSec=3
+LimitNOFILE=65536

@@ -1,0 +1,11 @@
+# install.sh core -> /etc/logrotate.d/tsn5g
+# Open5GS NFs append forever; the gNB log is truncated by srsRAN at each start
+# and archived by srsran-gnb.service, and size-checked by tsn_health.sh.
+/var/local/log/open5gs/*.log {
+    weekly
+    rotate 4
+    compress
+    missingok
+    notifempty
+    copytruncate
+}

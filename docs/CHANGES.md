@@ -6,6 +6,61 @@ back**. Commit hashes are filled in as `git log --oneline` shows them.
 
 ---
 
+## 6 — Core scripts and systemd units: the core starts at boot, NAT persists
+
+**What**
+- **Open5GS under systemd.** `open5gs@.service` (one instance per NF) and
+  `open5gs.target` (all 12). Each NF restarts if it dies. Configs come from
+  `/etc/tsn5g/open5gs/`. `open5gs-webui.service` runs the WebUI as `CORE_USER`.
+  `core/scripts/open5gs-ctl.sh status|start|stop|restart|logs` replaces
+  run5gs.sh for daily use.
+- **`tsn5g-core-net.service`** (`core-net.sh up`): ogstun with
+  `CORE_BEARER_IP`, ogstap, `ip_forward`, MASQUERADE for `UE_POOL` out of
+  `CORE_LAN_IF`, and the X410 link (MTU, address, UHD buffers).
+- `srsran-gnb.service.in` — the live unit with site values. It is now ordered
+  after the core (NG Setup needs the AMF). The log is in `/var/log/tsn5g/` and
+  still archived per start.
+- `tsn_health.sh`:
+  - site values from site.env;
+  - repairs through `systemctl start|restart open5gs.target`;
+  - **rotating an oversized gnb.log archives it gzipped first** (keeps 5);
+  - **pause file** `/etc/tsn5g/health.pause` stops auto-repair during an
+    experiment, while checks still run.
+- `restart_all.sh`, `post_reboot_check.sh` — parameterised; the second now
+  checks the networking that boot sets up.
+- `rt-grub.sh` (was `fix_grub_rt.sh`) takes the CPU list from
+  `GNB_ISOLATED_CPUS`.
+- `x410-find-nic.sh` shows link, speed, **NUMA node** and module per NIC, the
+  three things needed to fill in `X410_HOST_IF` and `GNB_NUMA_NODE`.
+- `core/etc/90-tsn-udp.conf` (UPF socket buffer 8 MB, UHD buffers,
+  ip_forward) and a logrotate rule for the NF logs.
+- `core/ptp/` — optional core gPTP, on `CORE_PTP_IF` (new in site.env).
+- `docs/history/core/` and `tools/core-experiments/` — the first rig's notes
+  and one-off test scripts, unchanged, for reference.
+
+**Why** — on the first rig nothing started the core at boot: the health timer
+noticed it was down three minutes later and ran run5gs.sh. NAT and
+`ip_forward` were lost on every reboot, until someone ran
+post_reboot_check.sh. The gNB could come up before the AMF existed.
+
+**Deploy** — installed by `install.sh core` (commit 7). Moving the first rig's
+core onto these units is a maintenance window: it stops the hand-started NFs
+and drops the UE for about a minute.
+
+**Verify**
+```bash
+sudo reboot            # then, with no manual step:
+/opt/tsn5g/core/scripts/open5gs-ctl.sh status             # all active
+/opt/tsn5g/core/scripts/tsn_health.sh                      # all PASS after ~3 min
+sudo iptables -t nat -S POSTROUTING | grep MASQUERADE      # present
+```
+
+**Roll back** — `sudo systemctl disable --now open5gs.target open5gs-webui
+tsn5g-core-net`, then start the old way (`run5gs.sh start`) and re-install the
+previous `srsran-gnb.service` / `tsn-health.service` from the old directory.
+
+---
+
 ## 5 — Core configuration in git: gNB, Open5GS, subscriber
 
 **What**

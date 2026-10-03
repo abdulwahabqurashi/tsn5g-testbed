@@ -1,0 +1,14 @@
+# Rendered from core/systemd/tsn-health.service.in by install.sh core
+[Unit]
+Description=TSN testbed health check and auto-repair (Open5GS core + srsRAN gNB + X410)
+Documentation=file://${PREFIX}/core/scripts/tsn_health.sh
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=${PREFIX}/core/scripts/tsn_health.sh --fix --quiet
+# a full core restart + gNB radio re-init can take ~60s; leave generous headroom
+TimeoutStartSec=300
+# exit 1 = issues found, exit 2 = needs a human. Neither should mark the unit
+# failed on every tick, otherwise the timer's own status becomes noise.
+SuccessExitStatus=0 1 2

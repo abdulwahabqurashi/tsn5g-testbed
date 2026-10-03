@@ -1,0 +1,20 @@
+# Rendered from core/systemd/open5gs-webui.service.in by install.sh core
+# Open5GS WebUI (subscriber admin) at http://${CORE_LAN_IP}:9999
+# Runs in development mode (node server/index.js), as on the first rig.
+[Unit]
+Description=Open5GS WebUI
+After=mongod.service network-online.target
+Wants=mongod.service
+
+[Service]
+Type=simple
+User=${CORE_USER}
+WorkingDirectory=${PREFIX}/core/open5gs/src/webui
+Environment=HOSTNAME=${CORE_LAN_IP}
+Environment=PORT=9999
+ExecStart=/usr/bin/node server/index.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

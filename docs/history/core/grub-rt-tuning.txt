@@ -1,0 +1,27 @@
+# Proposed GRUB change for /etc/default/grub
+# Purpose: stop the real-time deadline misses that cause uplink slot discards
+# and, at worst, the RF-overflow wedge.
+#
+# Cores isolated = exactly srsRAN's own threads from gnb_x410.yaml:
+#   ru_cpus        1,5,9,13
+#   main_pool_cpus 17,21,25,29,33,37,41,45,49,53,57,61
+# All are on NUMA node 1 (the X410 NIC's node), which the gNB already binds to
+# via numactl. Node 1 has 28 cores, so 12 remain available for general work,
+# plus all 84 cores on nodes 0/2/3 are untouched.
+#
+# What each parameter does:
+#   isolcpus              removes these cores from the general scheduler, so the
+#                         kernel never places other tasks on them. srsRAN still
+#                         pins to them explicitly, which isolcpus does not block.
+#   nohz_full             stops the periodic timer tick on those cores - the tick
+#                         is a direct source of the microsecond-scale jitter that
+#                         makes a slot deadline slip.
+#   rcu_nocbs             moves RCU callback processing off them; without this
+#                         nohz_full is undermined by RCU work.
+#   intel_idle.max_cstate=1
+#   processor.max_cstate=1
+#                         stops deep C-states. Exit latency from C3/C6 is tens of
+#                         microseconds, which alone can miss a slot. Costs power
+#                         and adds heat; that is the trade.
+
+GRUB_CMDLINE_LINUX_DEFAULT="isolcpus=1,5,9,13,17,21,25,29,33,37,41,45,49,53,57,61 nohz_full=1,5,9,13,17,21,25,29,33,37,41,45,49,53,57,61 rcu_nocbs=1,5,9,13,17,21,25,29,33,37,41,45,49,53,57,61 intel_idle.max_cstate=1 processor.max_cstate=1"

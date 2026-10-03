@@ -1,0 +1,8 @@
+# The whole Open5GS core: systemctl start|stop|restart open5gs.target
+[Unit]
+Description=Open5GS 5G core (12 network functions)
+Wants=open5gs@nrf.service open5gs@scp.service open5gs@ausf.service open5gs@udm.service open5gs@udr.service open5gs@pcf.service open5gs@nssf.service open5gs@bsf.service open5gs@amf.service open5gs@smf.service open5gs@upf.service open5gs@tsn-af.service
+After=tsn5g-core-net.service mongod.service
+
+[Install]
+WantedBy=multi-user.target

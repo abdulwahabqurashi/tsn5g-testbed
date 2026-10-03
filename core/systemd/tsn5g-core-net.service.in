@@ -1,0 +1,14 @@
+# Rendered from core/systemd/tsn5g-core-net.service.in by install.sh core
+[Unit]
+Description=TSN-5G core host networking (ogstun ${CORE_BEARER_IP}, NAT for ${UE_POOL}, X410 link)
+After=network-online.target
+Wants=network-online.target
+Before=open5gs.target srsran-gnb.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=${PREFIX}/core/scripts/core-net.sh up
+
+[Install]
+WantedBy=multi-user.target

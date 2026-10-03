@@ -1,0 +1,32 @@
+# Rendered from core/systemd/srsran-gnb.service.in by install.sh core
+[Unit]
+Description=srsRAN gNB (USRP X410 at ${X410_ADDR}) - 5G SA testbed
+After=network-online.target tsn5g-core-net.service open5gs.target
+Wants=network-online.target open5gs.target
+Requires=tsn5g-core-net.service
+# Don't give up after repeated restarts (e.g. while waiting for the X410 or the core)
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=root
+# X410 link (MTU, address) and UHD socket buffers, re-applied on every start
+ExecStartPre=${PREFIX}/core/scripts/core-net.sh x410
+ExecStartPre=/bin/sleep 2
+# srsRAN TRUNCATES its log at every start, so a restart would destroy the
+# evidence of the failure that caused it. Keep the last 20 runs.
+ExecStartPre=-/bin/sh -c 'd=/var/log/tsn5g/gnb-archive; mkdir -p "$d"; f=/var/log/tsn5g/gnb.log; [ -s "$f" ] && cp -a "$f" "$d/gnb-$(date -u +%%Y%%m%%dT%%H%%M%%SZ).log"; ls -1t "$d"/gnb-*.log 2>/dev/null | tail -n +21 | xargs -r rm -f'
+# numactl binds ALL threads (incl. UHD's socket threads) and memory to the X410
+# NIC's NUMA node; srsRAN's expert_execution pins its own threads within it.
+ExecStart=/usr/bin/stdbuf -oL -eL /usr/bin/numactl --cpunodebind=${GNB_NUMA_NODE} --membind=${GNB_NUMA_NODE} ${PREFIX}/build/srsRAN_Project/build/apps/gnb/gnb -c ${ETC_DIR}/gnb.yaml
+Restart=always
+RestartSec=10
+LimitRTPRIO=infinity
+LimitMEMLOCK=infinity
+# No interactive console under systemd (live `tx_gain` etc. not available here)
+StandardInput=null
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
