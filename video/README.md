@@ -10,7 +10,7 @@ redistribute). This folder holds only what we changed or configure:
 | `MANIFEST` | the exact vendor tarballs, by sha256 — install.sh refuses anything else |
 | `encoder/run.sh` | replaces the vendor launcher: adds `LD_LIBRARY_PATH` (libSpinnaker has no RUNPATH) and forces Qt's xcb plugin |
 | `encoder/camera1.json.in`, `camera2.json.in` | where each encoder sends: `CORE_BEARER_IP`, `CAM1_PORT` / `CAM2_PORT` |
-| `viewer/` | viewer config and service (install.sh viewer) |
+| `viewer/` | the viewer's units (virtual screen + viewer), sysctl; `config.json` is generated from `VIEWER_PORT_FIRST` |
 
 ## Getting the bundles onto a new machine
 

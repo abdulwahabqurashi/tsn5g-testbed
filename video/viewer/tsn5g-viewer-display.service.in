@@ -1,0 +1,14 @@
+# Rendered from video/viewer/tsn5g-viewer-display.service.in by install.sh viewer
+[Unit]
+Description=TSN-5G viewer: virtual screen :${DISPLAY_NUM} shared over VNC (localhost:${VNC_PORT})
+After=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=${VIEWER_USER}
+ExecStart=${PREFIX}/video/bin/vnc-display.sh up
+ExecStop=${PREFIX}/video/bin/vnc-display.sh down
+
+[Install]
+WantedBy=multi-user.target

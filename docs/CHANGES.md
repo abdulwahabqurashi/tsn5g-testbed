@@ -6,6 +6,47 @@ back**. Commit hashes are filled in as `git log --oneline` shows them.
 
 ---
 
+## 8 — `install.sh viewer`: the video viewer as a service
+
+**What**
+- `lib/install-viewer.sh`, five steps:
+  1. packages: Xvfb, x11vnc, openbox, and the Qt/xcb runtime libraries the
+     vendor bundles need (worked out from the bundles' `ldd` output; also
+     added to the UE install)
+  2. `pathView2.tar.gz` from `VENDOR_DIR`, sha256-checked, unpacked to
+     `$PREFIX/video/viewer/`; `config.json` generated with seven streams from
+     `VIEWER_PORT_FIRST` (the same content as the first rig's)
+  3. sysctl: 8 MB default UDP receive buffer
+  4. `tsn5g-viewer-display.service` (the virtual screen, the same
+     `vnc-display.sh` as the UE) and `tsn5g-viewer.service` (the viewer on it,
+     restarted if it exits)
+  5. enable and start. A viewer that was started by hand is left running.
+- site.env: `VIEWER_USER`.
+
+**Why** — on the first rig the core's screen and viewer were started by hand
+after every reboot (`~/vnc-display.sh up`, then `cd ~/pathView2 &&
+./bin/pathView2`). If nobody did it, the demo had no receiver.
+
+**Deploy**
+```bash
+sudo mkdir -p /srv/tsn5g-vendor && sudo cp pathView2.tar.gz /srv/tsn5g-vendor/
+sudo ./install.sh viewer
+```
+On the first rig, close the hand-started viewer first (or it is left alone),
+then `sudo systemctl start tsn5g-viewer`.
+
+**Verify**
+```bash
+systemctl is-active tsn5g-viewer-display tsn5g-viewer
+ss -ulpn | grep pathView2              # listening on 50451..50457
+# from your PC: ssh -L 5902:localhost:5900 <VIEWER_USER>@<core>  -> VNC localhost:5902
+```
+
+**Roll back** — `sudo ./install.sh viewer --remove`; start the viewer by hand
+as before.
+
+---
+
 ## 7 — `install.sh core`: build and run the core and gNB from pinned sources
 
 **What**

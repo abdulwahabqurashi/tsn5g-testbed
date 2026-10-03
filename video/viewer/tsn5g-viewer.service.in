@@ -1,0 +1,22 @@
+# Rendered from video/viewer/tsn5g-viewer.service.in by install.sh viewer
+# The video viewer (pathView2) on the virtual screen, listening for the
+# encoders on UDP ${VIEWER_PORT_FIRST} and up. Watch it over VNC:
+#   ssh -L 5902:localhost:${VNC_PORT} ${VIEWER_USER}@<this host>   then VNC to localhost:5902
+[Unit]
+Description=TSN-5G video viewer (pathView2) on screen :${DISPLAY_NUM}
+Requires=tsn5g-viewer-display.service
+After=tsn5g-viewer-display.service network-online.target
+
+[Service]
+Type=simple
+User=${VIEWER_USER}
+# config.json is read from the working directory
+WorkingDirectory=${PREFIX}/video/viewer/pathView2
+Environment=DISPLAY=:${DISPLAY_NUM}
+Environment=QT_QPA_PLATFORM=xcb
+ExecStart=${PREFIX}/video/viewer/pathView2/bin/pathView2
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

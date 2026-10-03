@@ -20,7 +20,7 @@ install_ue() {
     # interpreter externally-managed and the daemon runs on it.
     apt_install python3 python3-yaml python3-serial python3-paramiko \
         iproute2 iptables ethtool conntrack tcpdump libqmi-utils iperf3 linuxptp \
-        xvfb x11vnc openbox x11-utils curl gettext-base rsync
+        xvfb x11vnc openbox x11-utils curl gettext-base rsync $QT_RUNTIME_PKGS
 
     say "2/9 ModemManager"
     # It and the daemon both want the modem's AT port; it rewrites radio
