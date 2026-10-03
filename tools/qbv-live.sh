@@ -30,6 +30,10 @@
 # the report gives delay VARIATION (each packet's delay above the best one),
 # which needs no clock sync.
 set -uo pipefail
+if [ "$(id -u)" -eq 0 ]; then
+    echo "error: run as your normal user, without sudo (it needs your SSH key to the core; it asks for sudo itself)" >&2
+    exit 1
+fi
 . "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 TOOLS=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 TALKER=$TOOLS/qbv-talker.py
@@ -50,7 +54,7 @@ mkdir -p "$OUT"
 BIND=$(ip -4 -o addr show "$WWAN" | awk '{print $4}' | cut -d/ -f1)
 [ -n "$BIND" ] || die "$WWAN has no address — bring the bearer up first"
 ping -c3 -W2 -I "$WWAN" "$CORE_IP" >/dev/null 2>&1 || die "the core ($CORE_IP) does not answer over $WWAN"
-pgrep -f bin/pathStream1 >/dev/null && die "camera encoders are running — stop them first (UI: Cameras -> Stop, or sudo $ENCODER_SCRIPT stop)"
+pgrep -f bin/pathStream1 >/dev/null && die "camera encoders are running — stop them first: UI -> Cameras -> Stop, or: sudo $ENCODER_SCRIPT stop"
 ssh -o BatchMode=yes -o ConnectTimeout=5 "$CORE_SSH" 'command -v iperf3 >/dev/null && python3 -c "import time; time.CLOCK_TAI"' \
     || die "need passwordless SSH to $CORE_SSH with iperf3 and python3 there (ssh-copy-id $CORE_SSH)"
 scp -q "$TALKER" "$CORE_SSH:/tmp/qbv-talker.py" || die "could not copy the talker to the core"

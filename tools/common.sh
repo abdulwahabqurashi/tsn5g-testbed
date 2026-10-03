@@ -11,4 +11,6 @@ CAM1_PORT=${CAM1_PORT:-50451}
 CAM2_PORT=${CAM2_PORT:-50452}
 API=${API:-http://localhost:${API_PORT:-8080}}
 ENCODER_SCRIPT=${PREFIX:-/opt/tsn5g}/ue/scripts/cameras-start.sh
+# not installed yet (first rig before install.sh ue): the checkout's copy
+[ -x "$ENCODER_SCRIPT" ] || ENCODER_SCRIPT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/ue/scripts/cameras-start.sh
 export CAM1_PORT CAM2_PORT GBR_PORT
