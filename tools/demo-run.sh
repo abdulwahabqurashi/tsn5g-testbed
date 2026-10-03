@@ -51,9 +51,9 @@
 
 set -uo pipefail
 
-CORE=${CORE:-tsn_server@10.5.1.19}
-CORE_BEARER_IP=10.45.0.1
-API=${API:-http://localhost:8080}
+. "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+CORE=$CORE_SSH
+CORE_BEARER_IP=$CORE_IP
 PHASE=${PHASE:-60}
 SETTLE=${SETTLE:-5}          # seconds ignored after each switch
 PAIRS=${PAIRS:-3}            # off/on pairs after the baseline
@@ -72,8 +72,8 @@ PCAP=/tmp/demo-$(date +%s).pcap
 die() { echo "error: $*" >&2; exit 1; }
 
 mkdir -p "$OUT"
-BIND=$(ip -4 -o addr show wwan0 | awk '{print $4}' | cut -d/ -f1)
-[ -n "$BIND" ] || die "wwan0 has no address — is the bearer up?"
+BIND=$(ip -4 -o addr show $WWAN | awk '{print $4}' | cut -d/ -f1)
+[ -n "$BIND" ] || die "$WWAN has no address — is the bearer up?"
 ssh -o BatchMode=yes -o ConnectTimeout=5 "$CORE" true 2>/dev/null || \
     die "no passwordless SSH to $CORE — run: ssh-copy-id $CORE"
 
@@ -115,8 +115,8 @@ TOTAL=$(( (PHASE + 10) * NPHASES + 60 ))
 echo "== $NPHASES phases of ${PHASE}s — about $(( (PHASE + 6) * NPHASES / 60 + 1 )) minutes"
 echo "== core: capture and iperf3 server (sudo password for the core, once)"
 ssh -t "$CORE" "sudo -b timeout $TOTAL tcpdump -i ogstun -n -s 96 -w $PCAP \
-    'udp and (dst port 50451 or dst port 50452)' >/dev/null 2>&1; \
-    for p in \$(seq 5211 5219); do pkill -f \"iperf3 -s -p \$p\" 2>/dev/null; \
+    'udp and (dst port $CAM1_PORT or dst port $CAM2_PORT)' >/dev/null 2>&1; \
+    for p in \$(seq 5211 5219); do pkill -f \"^iperf3 -s -p \$p\" 2>/dev/null; \
         iperf3 -s -p \$p -D; done" \
     || die "could not start the core side"
 # Fresh servers on their own ports every run: on 3 Oct two floods failed with
@@ -150,7 +150,7 @@ TC="$OUT/tc.tsv"
 printf "phase\tclass\tbytes\tpkts\tdropped\n" > "$TC"
 
 tc_snap() {   # phase tag
-    tc -s class show dev wwan0 2>/dev/null | awk -v p="$1" '
+    tc -s class show dev $WWAN 2>/dev/null | awk -v p="$1" '
         /^class htb/ {c=$3}
         /Sent/ && c {gsub(/[(,]/," "); print p"\t"c"\t"$2"\t"$4"\t"$7; c=""}' >> "$TC"
 }

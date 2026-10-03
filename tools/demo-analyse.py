@@ -26,7 +26,7 @@ import re
 import statistics
 import sys
 
-PORTS = ("50451", "50452")
+PORTS = (os.environ.get("CAM1_PORT", "50451"), os.environ.get("CAM2_PORT", "50452"))
 
 
 def load(run):
@@ -144,7 +144,7 @@ def main(run):
                 sent[s0["dport"]] = s1["pkts"] - s0["pkts"]
         t0, t1 = window(p)
         parts = []
-        for port, name in ((50451, "camera1"), (50452, "camera2")):
+        for port, name in ((int(PORTS[0]), "camera1"), (int(PORTS[1]), "camera2")):
             got = sum(1 for t, d, n in rx if t0 <= t < t1 and d == str(port))
             # counters span the snapshot instants, the capture the phase window:
             # scale the sent count to the window length

@@ -1,5 +1,11 @@
 # Handover — TSN-5G UE Console
 
+> **Historical.** This describes the first rig as it ran from
+> `~/camera_application/tsn5g-ue-app`. In this repository the units, sudoers and
+> polkit files are templates under `ue/templates/`, the tools are in `tools/`,
+> and everything installs to `/opt/tsn5g` with `install.sh ue` — see
+> `docs/DEPLOY.md` at the repository root.
+
 Read this instead of re-deriving the project. Written 22 Sep 2026, after the
 session that built the console and the software TSN bridge.
 

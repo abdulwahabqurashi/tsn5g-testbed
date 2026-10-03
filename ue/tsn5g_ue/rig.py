@@ -16,6 +16,7 @@ directly.
 
 import logging
 import os
+import re
 import subprocess
 
 from . import utils
@@ -108,10 +109,37 @@ def stream(cmd, log, timeout=180, env=None):
 
 
 # -- units ---------------------------------------------------------------------
-def _same_file(a, b):
+def _site_values():
+    """site.env as a dict: the installed copy, else the checkout's."""
+    vals = {}
+    for path in (os.environ.get("SITE_ENV", ""), "/etc/tsn5g/site.env",
+                 os.path.join(os.path.dirname(REPO), "site.env")):
+        if path and os.path.isfile(path):
+            with open(path) as f:
+                for line in f:
+                    m = re.match(r'\s*([A-Z][A-Z0-9_]*)=("([^"]*)"|\'([^\']*)\'|(\S*))', line)
+                    if m:
+                        vals[m.group(1)] = next(g for g in m.group(3, 4, 5) if g is not None)
+            break
+    return vals
+
+
+def _rendered_unit(unit):
+    """The unit as install-autostart.sh would write it now (template + site.env)."""
     try:
-        with open(a, "rb") as fa, open(b, "rb") as fb:
-            return fa.read() == fb.read()
+        with open(os.path.join(REPO, "templates", "systemd", unit + ".in")) as f:
+            text = f.read()
+    except OSError:
+        return None
+    vals = _site_values()
+    return re.sub(r"\$\{([A-Z][A-Z0-9_]*)\}", lambda m: vals.get(m.group(1), m.group(0)), text)
+
+
+def _up_to_date(path, unit):
+    want = _rendered_unit(unit)
+    try:
+        with open(path) as f:
+            return want is not None and f.read() == want
     except OSError:
         return False
 
@@ -132,7 +160,7 @@ def units():
             "installed": installed,
             "enabled": installed and _out(["systemctl", "is-enabled", u]) == "enabled",
             "active": _out(["systemctl", "is-active", u]) == "active",
-            "up_to_date": installed and _same_file(path, os.path.join(REPO, "systemd", u)),
+            "up_to_date": installed and _up_to_date(path, u),
         }
     return out
 

@@ -37,14 +37,18 @@
 
 set -uo pipefail
 
-APP=/home/amrc/camera_application/U5G/x11/pathStream1
-RUN_USER=${SUDO_USER:-amrc}
-NS=cam2
+. "$(dirname "${BASH_SOURCE[0]}")/site-env.sh"     # site.env: user, paths, namespace
+APP=${ENCODER_DIR:-${PREFIX:-/opt/tsn5g}/video/encoder/pathStream1}
+RUN_USER=${UE_USER:-${SUDO_USER:-amrc}}
+NS=${CAM2_NETNS:-cam2}
 LOGDIR=/tmp/camera-encoders
 CAM1_CFG="$APP/camera1-protected.json"
 CAM2_CFG="$APP/camera2-besteffort.json"
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-DAEMON_CFG="$REPO/config/tsn5g-ue.di1200.yaml"
+# The installed, rendered daemon config; the checkout's dev config otherwise.
+DAEMON_CFG=${ETC_DIR:-/etc/tsn5g}/tsn5g-ue.yaml
+[ -f "$DAEMON_CFG" ] || DAEMON_CFG="$REPO/config/tsn5g-ue.di1200.yaml"
+VDISP=":${DISPLAY_NUM:-99}"
 # Side by side on the 1920x1080 virtual screen; Qt's xcb plugin honours
 # -geometry for the first window shown.
 CAM1_GEOM="-geometry 950x1040+0+0"
@@ -57,14 +61,14 @@ pick_display() {
     # local sockets.
     DISP=${ENC_DISPLAY:-}
     if [ -z "$DISP" ]; then
-        if [ -S /tmp/.X11-unix/X99 ]; then DISP=:99; else DISP=:0; fi
+        if [ -S "/tmp/.X11-unix/X${VDISP#:}" ]; then DISP=$VDISP; else DISP=:0; fi
     fi
     if [ "$DISP" = ":0" ]; then XA=$(find_xauth); else XA=; fi
 }
 
 find_xauth() {
     local f
-    f=$(ls -t /run/user/1000/.mutter-Xwaylandauth.* 2>/dev/null | head -1)
+    f=$(ls -t "/run/user/$(id -u "$RUN_USER")"/.mutter-Xwaylandauth.* 2>/dev/null | head -1)
     [ -n "$f" ] || die "no XWayland auth file — is a desktop session running?"
     echo "$f"
 }

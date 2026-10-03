@@ -1,0 +1,65 @@
+# Rendered from ue/templates/etc/tsn5g-ue.sudoers.in by install.sh
+#   -> /etc/sudoers.d/tsn5g-ue  (0440; install.sh checks it with visudo -c first)
+#
+# Lets the console user (${UE_USER}) drive the UE rig without a password prompt.
+# Remove:  sudo rm /etc/sudoers.d/tsn5g-ue
+#
+# ---------------------------------------------------------------------------
+# There is deliberately no NOPASSWD entry for python3, install, cp, tee, dd,
+# sh or bash with open arguments. Any of those is arbitrary code as root, i.e.
+# the same authority as `NOPASSWD: ALL` wearing a scoped-looking costume.
+# Running the daemon in the foreground is allowed as a fully literal command
+# (fixed module, fixed config); sudo's env_reset stops PYTHONPATH injection.
+# ---------------------------------------------------------------------------
+
+Cmnd_Alias TSN5G_SVC = \
+    /usr/bin/systemctl start tsn5g-ue, \
+    /usr/bin/systemctl stop tsn5g-ue, \
+    /usr/bin/systemctl restart tsn5g-ue, \
+    /usr/bin/systemctl status tsn5g-ue, \
+    /usr/bin/systemctl status tsn5g-ue.service, \
+    /usr/bin/systemctl is-active tsn5g-ue, \
+    /usr/bin/systemctl is-enabled tsn5g-ue, \
+    /usr/bin/systemctl is-enabled ModemManager, \
+    /usr/bin/systemctl enable tsn5g-ue, \
+    /usr/bin/systemctl disable tsn5g-ue, \
+    /usr/bin/systemctl daemon-reload, \
+    /usr/bin/systemctl mask ModemManager, \
+    /usr/bin/systemctl unmask ModemManager, \
+    /usr/bin/systemctl stop ModemManager, \
+    /usr/bin/systemctl restart tsn5g-cameras, \
+    /usr/bin/systemctl restart tsn5g-cam2-netns, \
+    /usr/bin/systemctl restart tsn5g-vnc-display, \
+    /usr/bin/journalctl -u tsn5g-ue, \
+    /usr/bin/journalctl -u tsn5g-ue *
+
+Cmnd_Alias TSN5G_RUN = \
+    /usr/bin/python3 -m tsn5g_ue -c ${ETC_DIR}/tsn5g-ue.yaml, \
+    /usr/bin/python3 -m tsn5g_ue -c ${ETC_DIR}/tsn5g-ue.yaml -l debug, \
+    /usr/bin/python3 -m tsn5g_ue -c ${ETC_DIR}/tsn5g-ue.yaml -l info
+
+# Manual bring-up helpers (installed root-owned under ${PREFIX}, so unlike a
+# script in a home directory the user cannot rewrite them).
+Cmnd_Alias TSN5G_BRINGUP = \
+    ${PREFIX}/tools/modem/ue_qmi_up.sh up, \
+    ${PREFIX}/tools/modem/ue_qmi_up.sh down, \
+    ${PREFIX}/tools/modem/ue_qmi_up.sh status, \
+    ${PREFIX}/tools/modem/at.py *
+
+# The device plane: wide in arguments, bounded in kind. `ip`/`iptables` can
+# reroute this machine's traffic including SSH, tcpdump reads every packet —
+# inherent to the job, which is why the daemon checks `ip route get` before and
+# after every change and rolls back.
+Cmnd_Alias TSN5G_DEV = \
+    /usr/bin/qmicli *, \
+    /usr/bin/mbimcli *, \
+    /usr/sbin/ip *, \
+    /usr/sbin/iptables *, \
+    /usr/sbin/iptables-save, \
+    /usr/sbin/tc *, \
+    /usr/sbin/ethtool *, \
+    /usr/sbin/ptp4l *, \
+    /usr/sbin/phc2sys *, \
+    /usr/bin/tcpdump *
+
+${UE_USER} ALL=(root) NOPASSWD: TSN5G_SVC, TSN5G_RUN, TSN5G_BRINGUP, TSN5G_DEV

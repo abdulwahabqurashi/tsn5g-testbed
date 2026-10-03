@@ -3,11 +3,13 @@
 window. Usage: n3count.py PCAP T0 T1   (epoch seconds, UE clock ~ core clock).
 A datagram is counted once: its unfragmented packet or its first fragment.
 Python 3.6-compatible (runs on the core)."""
+import os
 import struct
 import sys
 
 UE = bytes([10, 45, 0, 12])
-PORTS = {50451: "camera1", 50452: "camera2"}
+PORTS = {int(os.environ.get("CAM1_PORT", 50451)): "camera1",
+         int(os.environ.get("CAM2_PORT", 50452)): "camera2"}
 path, t0, t1 = sys.argv[1], float(sys.argv[2]), float(sys.argv[3])
 n = {name: 0 for name in PORTS.values()}
 with open(path, "rb") as fh:

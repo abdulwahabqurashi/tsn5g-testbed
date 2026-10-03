@@ -14,29 +14,30 @@
 # Compare A-B for fragmentation, B-C for burstiness, C-D for the bearer.
 # Stop the cameras first so they don't share the link.
 #
-# Usage:  ./radio-loss-test.sh            (as amrc on the UE)
+# Usage:  ./radio-loss-test.sh            (as the desktop user on the UE)
 #         RATE=4.3M DUR=30 ./radio-loss-test.sh
 
 set -uo pipefail
-CORE=10.45.0.1
+. "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+CORE=$CORE_IP
 RATE=${RATE:-4.3M}
 DUR=${DUR:-30}
 OUT=$HOME/radio-loss/$(date +%Y%m%d-%H%M%S); mkdir -p "$OUT"
-BIND=$(ip -4 -o addr show wwan0 | awk '{print $4}' | cut -d/ -f1)
+BIND=$(ip -4 -o addr show $WWAN | awk '{print $4}' | cut -d/ -f1)
 
 die() { echo "error: $*" >&2; exit 1; }
-[ -n "$BIND" ] || die "wwan0 has no address"
-ping -c3 -i 0.3 -W2 -I wwan0 "$CORE" >/dev/null 2>&1 || die "the core does not answer over wwan0 — restart the data call first"
+[ -n "$BIND" ] || die "$WWAN has no address"
+ping -c3 -i 0.3 -W2 -I $WWAN "$CORE" >/dev/null 2>&1 || die "the core does not answer over $WWAN — restart the data call first"
 if pgrep -f bin/pathStream1 >/dev/null; then
-    die "camera encoders are running — stop them first:  sudo ~/camera_application/tsn5g-ue-app/scripts/cameras-start.sh stop"
+    die "camera encoders are running — stop them first:  sudo $ENCODER_SCRIPT stop"
 fi
 if [ "$(cat /proc/sys/net/core/wmem_max)" -lt 8388608 ]; then
     sudo sysctl -q -w net.core.wmem_max=16777216 net.core.rmem_max=16777216 || die "need sudo for socket buffers"
 fi
 
 echo "fresh iperf3 servers on the core (ports 5221-5224)"
-ssh -o BatchMode=yes tsn_server@10.5.1.19 \
-  'for p in 5221 5222 5223 5224; do pkill -f "iperf3 -s -p $p" 2>/dev/null; iperf3 -s -p $p -D; done' \
+ssh -o BatchMode=yes "$CORE_SSH" \
+  'for p in 5221 5222 5223 5224; do pkill -f "^iperf3 -s -p $p" 2>/dev/null; iperf3 -s -p $p -D; done' \
   || die "cannot reach the core over SSH"
 sleep 1
 
@@ -62,7 +63,7 @@ echo "results in $OUT"
 run A-default-1300-smooth   5221 -b "$RATE"     -l 1300
 run B-default-1472-smooth   5222 -b "$RATE"     -l 1472
 run C-default-1472-burst15  5223 -b "$RATE/15"  -l 1472
-run D-gbr-1472-burst15      5224 -b "$RATE/15"  -l 1472 --cport 5202
+run D-gbr-1472-burst15      5224 -b "$RATE/15"  -l 1472 --cport $GBR_PORT
 
 echo
 echo "read it as:   A vs B = fragmentation    B vs C = bursts    C vs D = GBR bearer"

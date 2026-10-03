@@ -17,6 +17,8 @@ import os
 import re
 import sys
 
+GBR_PORT = int(os.environ.get("GBR_SOURCE_PORT", os.environ.get("GBR_PORT", 5202)))
+
 
 def flow(path):
     d = json.load(open(path))
@@ -113,8 +115,8 @@ def one(run):
     gbr = os.path.join(run, "gbr.json")
     if os.path.exists(gbr):
         ports = flow(gbr).get("src_ports") or []
-        if ports and ports != [5202]:
-            print(f"  WARNING: the GBR flow left from source port(s) {ports}, not 5202 — "
+        if ports and ports != [GBR_PORT]:
+            print(f"  WARNING: the GBR flow left from source port(s) {ports}, not {GBR_PORT} — "
                   f"it did not match QFI 2")
 
 

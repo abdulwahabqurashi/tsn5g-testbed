@@ -1,0 +1,5 @@
+# Rendered by install.sh -> /etc/NetworkManager/conf.d/99-tsn5g-cameras.conf
+# NetworkManager must leave the camera NICs alone: the daemon addresses them
+# (one /24 per camera) and NM used to overwrite that 15 minutes later.
+[keyfile]
+unmanaged-devices=interface-name:${CAM1_IF};interface-name:${CAM2_IF}

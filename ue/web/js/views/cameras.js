@@ -143,7 +143,7 @@ export default defineView({
       }
       if (c.all_done) {
         setupBody.appendChild(h("p", { style: { "font-weight": "600", color: "var(--green)" },
-          text: "Everything is set. Run the demo from the UE:  ~/camera_application/tsn5g-ue-app/scripts/demo-run.sh" }));
+          text: "Everything is set. Run the demo from the UE:  /opt/tsn5g/tools/demo-run.sh" }));
       }
       c.steps.forEach((st, i) => {
         const node = h("div", { style: {

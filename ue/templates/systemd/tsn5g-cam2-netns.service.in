@@ -1,0 +1,17 @@
+# Rendered from ue/templates/systemd/tsn5g-cam2-netns.service.in by install.sh
+[Unit]
+Description=TSN-5G UE: camera 2's network namespace (${CAM2_IF} -> netns ${CAM2_NETNS})
+Documentation=file://${PREFIX}/ue/scripts/camera2-netns.sh
+Before=tsn5g-ue.service
+After=NetworkManager.service systemd-udev-settle.service
+# No dependency on the NIC's device unit: moving the NIC into the namespace
+# removes it, and BindsTo= would then stop this unit (LESSONS.md).
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=${PREFIX}/ue/scripts/camera2-netns.sh ensure
+ExecStop=${PREFIX}/ue/scripts/camera2-netns.sh down
+
+[Install]
+WantedBy=multi-user.target

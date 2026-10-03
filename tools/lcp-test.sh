@@ -27,16 +27,15 @@
 #         ./lcp-test.sh 2b           Test 2 with host priority for the GBR stream
 #         ./lcp-test.sh 2c           Test 2 with the UE shaped below the radio (SHAPE_MBPS)
 #
-# Env: CORE (10.45.0.1), API (http://localhost:8080), LIMIT (pfifo limit, 1000),
+# Env: CORE_IP (site.env CORE_BEARER_IP), API (http://localhost:API_PORT), LIMIT (pfifo limit, 1000),
 #      FLOOD_RATES (Test 3 flood steps in Mbit/s, default "20 40 60 90 120"),
 #      NOPAUSE=1 to skip the "tell the core" pause (not recommended).
 
 set -uo pipefail
 
-CORE=${CORE:-10.45.0.1}
-API=${API:-http://localhost:8080}
+. "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+CORE=$CORE_IP
 LIMIT=${LIMIT:-1000}
-GBR_PORT=5202          # the source port the PCC rule matches for QFI 2
 OUT=${OUT:-$HOME/lcp-runs/$(date +%Y%m%d-%H%M%S)}
 IDLE_KBPS=500          # "idle" means below this in each direction
 
@@ -45,16 +44,16 @@ say() { echo "$*" | tee -a "$OUT/run.log"; }
 
 [ $# -ge 1 ] || die "usage: $0 0|1|2|3 [...]  (start with 0)"
 mkdir -p "$OUT"
-BIND=$(ip -4 -o addr show wwan0 | awk '{print $4}' | cut -d/ -f1)
-[ -n "$BIND" ] || die "wwan0 has no address"
+BIND=$(ip -4 -o addr show $WWAN | awk '{print $4}' | cut -d/ -f1)
+[ -n "$BIND" ] || die "$WWAN has no address"
 
 # -- preconditions -------------------------------------------------------------
 check_session() {
-    if ! ping -c3 -W2 -I wwan0 "$CORE" >/dev/null 2>&1; then
-        die "the core ($CORE) does not answer over wwan0 — the data session is down.
+    if ! ping -c3 -W2 -I $WWAN "$CORE" >/dev/null 2>&1; then
+        die "the core ($CORE) does not answer over $WWAN — the data session is down.
        Re-establish it first (UI: Connection -> Cycle bearer), then re-run."
     fi
-    say "session: $CORE answers over wwan0 from $BIND"
+    say "session: $CORE answers over $WWAN from $BIND"
 }
 
 check_cameras() {
@@ -67,9 +66,9 @@ check_cameras() {
 
 check_idle() {
     local t0 r0 t1 r1
-    t0=$(cat /sys/class/net/wwan0/statistics/tx_bytes); r0=$(cat /sys/class/net/wwan0/statistics/rx_bytes)
+    t0=$(cat /sys/class/net/$WWAN/statistics/tx_bytes); r0=$(cat /sys/class/net/$WWAN/statistics/rx_bytes)
     sleep 5
-    t1=$(cat /sys/class/net/wwan0/statistics/tx_bytes); r1=$(cat /sys/class/net/wwan0/statistics/rx_bytes)
+    t1=$(cat /sys/class/net/$WWAN/statistics/tx_bytes); r1=$(cat /sys/class/net/$WWAN/statistics/rx_bytes)
     local tx=$(( (t1 - t0) * 8 / 5 / 1000 )) rx=$(( (r1 - r0) * 8 / 5 / 1000 ))
     say "idle check (5 s): tx ${tx} kbit/s, rx ${rx} kbit/s"
     [ "$tx" -lt "$IDLE_KBPS" ] && [ "$rx" -lt "$IDLE_KBPS" ] || \
@@ -79,16 +78,16 @@ check_idle() {
 set_pfifo() {
     curl -sf -X PUT "$API/api/bearer/queue" -H 'Content-Type: application/json' \
         -d "{\"policy\":\"shallow\",\"limit\":$LIMIT}" > "$OUT/qdisc-set.json" \
-        || die "could not set the wwan0 qdisc to pfifo through the daemon"
-    local first; first=$(tc qdisc show dev wwan0 | head -1)
-    echo "$first" | grep -q "^qdisc pfifo " || die "wwan0 qdisc reads back as: $first (want pfifo)"
+        || die "could not set the $WWAN qdisc to pfifo through the daemon"
+    local first; first=$(tc qdisc show dev $WWAN | head -1)
+    echo "$first" | grep -q "^qdisc pfifo " || die "$WWAN qdisc reads back as: $first (want pfifo)"
     say "qdisc: $first"
 }
 
 restore_qdisc() {
     curl -sf -X PUT "$API/api/bearer/queue" -H 'Content-Type: application/json' \
         -d '{"policy":"limited","limit":256,"be_mbps":30,"link_mbps":60}' >/dev/null \
-        && echo "wwan0 qdisc restored to limited 30/60 (the camera lanes)"
+        && echo "$WWAN qdisc restored to limited 30/60 (the camera lanes)"
 }
 
 # -- one test ------------------------------------------------------------------
@@ -100,14 +99,14 @@ pause_for_core() {   # name
     fi
 }
 
-sampler() {   # dir — wwan0 counters + qdisc stats every second
+sampler() {   # dir — $WWAN counters + qdisc stats every second
     local dir=$1
     printf "t\ttx_bytes\trx_bytes\tqdisc_sent_pkts\tqdisc_dropped\tbacklog_pkts\n" > "$dir/samples.tsv"
     while :; do
-        local q; q=$(tc -s qdisc show dev wwan0 | head -3 | tr '\n' ' ')
+        local q; q=$(tc -s qdisc show dev $WWAN | head -3 | tr '\n' ' ')
         printf "%s\t%s\t%s\t%s\t%s\t%s\n" "$(date +%s.%N)" \
-            "$(cat /sys/class/net/wwan0/statistics/tx_bytes)" \
-            "$(cat /sys/class/net/wwan0/statistics/rx_bytes)" \
+            "$(cat /sys/class/net/$WWAN/statistics/tx_bytes)" \
+            "$(cat /sys/class/net/$WWAN/statistics/rx_bytes)" \
             "$(echo "$q" | sed -n 's/.*Sent [0-9]* bytes \([0-9]*\) pkt.*/\1/p')" \
             "$(echo "$q" | sed -n 's/.*dropped \([0-9]*\),.*/\1/p')" \
             "$(echo "$q" | sed -n 's/.*backlog [^ ]* \([0-9]*\)p.*/\1/p')" >> "$dir/samples.tsv"
@@ -119,7 +118,7 @@ sampler() {   # dir — wwan0 counters + qdisc stats every second
 run_flows() {
     local dir=$1; shift
     mkdir -p "$dir"
-    tc -s qdisc show dev wwan0 > "$dir/qdisc-before.txt"
+    tc -s qdisc show dev $WWAN > "$dir/qdisc-before.txt"
     : > "$dir/commands.txt"
     sampler "$dir" & local sp=$!
     local pids=() spec name args
@@ -132,7 +131,7 @@ run_flows() {
     done
     for p in "${pids[@]}"; do wait "$p"; done
     kill "$sp" 2>/dev/null
-    tc -s qdisc show dev wwan0 > "$dir/qdisc-after.txt"
+    tc -s qdisc show dev $WWAN > "$dir/qdisc-after.txt"
     python3 "$(dirname "${BASH_SOURCE[0]}")/lcp-analyse.py" "$dir" | tee "$dir/result.txt" | tee -a "$OUT/run.log"
 }
 
@@ -152,7 +151,7 @@ test1() {
     pause_for_core "TEST 1 (LCP: GBR 20M vs default 4x30M)"
     run_flows "$OUT/test1" \
         "gbr:$C -b 20M -t 120 -p 5201 --cport $GBR_PORT --get-server-output" \
-        "flood:$C -b 30M -P 4 -t 120 -p 5202 --get-server-output"
+        "flood:$C -b 30M -P 4 -t 120 -p $GBR_PORT --get-server-output"
     say "Valid only if the core saw a BSR with LCG 1 AND LCG 2 non-zero in the same report."
 }
 test2() {
@@ -162,7 +161,7 @@ test2() {
     pause_for_core "TEST 2 (control: GBR 120M single stream vs default 20M)"
     run_flows "$OUT/test2" \
         "gbr:$C -b 120M -t 120 -p 5201 --cport $GBR_PORT --get-server-output" \
-        "flood:$C -b 20M -t 120 -p 5202 --get-server-output"
+        "flood:$C -b 20M -t 120 -p $GBR_PORT --get-server-output"
 }
 # Test 2b — Test 2 again, but with the UE itself giving the GBR stream priority
 # before the modem. Tests 1-3 showed the light flow winning whichever flow had
@@ -174,9 +173,9 @@ test2() {
 # gives packets from source port 5202 skb priority 6, which the priomap sends
 # to band 0. Everything else stays at priority 0 -> band 1. The rule is
 # removed again when the test ends, and the queue goes back to the camera lanes.
-PRIO_RULE=(-t mangle -I POSTROUTING 1 -o wwan0 -p udp --sport "$GBR_PORT" -j CLASSIFY --set-class 0:6)
-PRIO_CHECK=(-t mangle -C POSTROUTING -o wwan0 -p udp --sport "$GBR_PORT" -j CLASSIFY --set-class 0:6)
-PRIO_DEL=(-t mangle -D POSTROUTING -o wwan0 -p udp --sport "$GBR_PORT" -j CLASSIFY --set-class 0:6)
+PRIO_RULE=(-t mangle -I POSTROUTING 1 -o $WWAN -p udp --sport "$GBR_PORT" -j CLASSIFY --set-class 0:6)
+PRIO_CHECK=(-t mangle -C POSTROUTING -o $WWAN -p udp --sport "$GBR_PORT" -j CLASSIFY --set-class 0:6)
+PRIO_DEL=(-t mangle -D POSTROUTING -o $WWAN -p udp --sport "$GBR_PORT" -j CLASSIFY --set-class 0:6)
 
 test2b() {
     say "TEST 2b needs sudo once, to add and later remove the priority rule."
@@ -185,20 +184,20 @@ test2b() {
     trap 'sudo iptables "${PRIO_DEL[@]}" 2>/dev/null && echo "host priority rule removed"; restore_qdisc' EXIT
     curl -sf -X PUT "$API/api/bearer/queue" -H 'Content-Type: application/json' \
         -d "{\"policy\":\"prio\",\"limit\":$LIMIT}" > "$OUT/qdisc-set-prio.json" \
-        || die "could not set the wwan0 qdisc to prio"
-    local first; first=$(tc qdisc show dev wwan0 | head -1)
-    echo "$first" | grep -q "^qdisc prio " || die "wwan0 qdisc reads back as: $first (want prio)"
+        || die "could not set the $WWAN qdisc to prio"
+    local first; first=$(tc qdisc show dev $WWAN | head -1)
+    echo "$first" | grep -q "^qdisc prio " || die "$WWAN qdisc reads back as: $first (want prio)"
     say "qdisc: $first"
     sudo iptables "${PRIO_CHECK[@]}" || die "priority rule did not land"
     say "rule: udp source port $GBR_PORT -> skb priority 6 -> band 0 (strict priority over everything else)"
     mkdir -p "$OUT/test2b"
     sudo iptables -t mangle -L POSTROUTING -v -n -x > "$OUT/test2b/rules-before.txt"
-    tc -s class show dev wwan0 > "$OUT/test2b/bands-before.txt"
+    tc -s class show dev $WWAN > "$OUT/test2b/bands-before.txt"
     pause_for_core "TEST 2b (Test 2 with host priority for GBR: GBR 120M single stream vs default 20M)"
     run_flows "$OUT/test2b" \
         "gbr:$C -b 120M -t 120 -p 5201 --cport $GBR_PORT --get-server-output" \
-        "flood:$C -b 20M -t 120 -p 5202 --get-server-output"
-    tc -s class show dev wwan0 > "$OUT/test2b/bands-after.txt"
+        "flood:$C -b 20M -t 120 -p $GBR_PORT --get-server-output"
+    tc -s class show dev $WWAN > "$OUT/test2b/bands-after.txt"
     sudo iptables -t mangle -L POSTROUTING -v -n -x > "$OUT/test2b/rules-after.txt"
     say "host bands (packets sent / dropped during the test):"
     paste <(awk '/^class prio/{c=$3} /Sent/{print c, $4, $7}' "$OUT/test2b/bands-before.txt") \
@@ -220,9 +219,9 @@ test2b() {
 #
 # SHAPE_MBPS: set it, or leave it unset and the script measures the uplink for
 # 10 s first and uses 85% of what it carried.
-SHAPE_RULE=(-t mangle -I POSTROUTING 1 -o wwan0 -p udp --sport "$GBR_PORT" -j CLASSIFY --set-class 1:10)
-SHAPE_CHECK=(-t mangle -C POSTROUTING -o wwan0 -p udp --sport "$GBR_PORT" -j CLASSIFY --set-class 1:10)
-SHAPE_DEL=(-t mangle -D POSTROUTING -o wwan0 -p udp --sport "$GBR_PORT" -j CLASSIFY --set-class 1:10)
+SHAPE_RULE=(-t mangle -I POSTROUTING 1 -o $WWAN -p udp --sport "$GBR_PORT" -j CLASSIFY --set-class 1:10)
+SHAPE_CHECK=(-t mangle -C POSTROUTING -o $WWAN -p udp --sport "$GBR_PORT" -j CLASSIFY --set-class 1:10)
+SHAPE_DEL=(-t mangle -D POSTROUTING -o $WWAN -p udp --sport "$GBR_PORT" -j CLASSIFY --set-class 1:10)
 
 measure_ceiling() {   # prints only the number; say nothing on stdout here
     local mbps
@@ -247,25 +246,25 @@ test2c() {
         say "shaping the UE at ${ceil} Mbit/s (SHAPE_MBPS)"
     fi
     trap 'sudo iptables "${SHAPE_DEL[@]}" 2>/dev/null && echo "shaping rule removed"; restore_qdisc' EXIT
-    sudo tc qdisc del dev wwan0 root 2>/dev/null
-    sudo tc qdisc add dev wwan0 root handle 1: htb default 20 r2q 10 || die "could not add the HTB root"
-    sudo tc class add dev wwan0 parent 1: classid 1:1 htb rate "${ceil}mbit" ceil "${ceil}mbit"
-    sudo tc class add dev wwan0 parent 1:1 classid 1:10 htb rate "$(( ceil - 1 ))mbit" ceil "${ceil}mbit" prio 0 quantum 1400
-    sudo tc class add dev wwan0 parent 1:1 classid 1:20 htb rate 1mbit ceil "${ceil}mbit" prio 1 quantum 1400
-    sudo tc qdisc add dev wwan0 parent 1:10 pfifo limit "$LIMIT"
-    sudo tc qdisc add dev wwan0 parent 1:20 pfifo limit "$LIMIT"
+    sudo tc qdisc del dev $WWAN root 2>/dev/null
+    sudo tc qdisc add dev $WWAN root handle 1: htb default 20 r2q 10 || die "could not add the HTB root"
+    sudo tc class add dev $WWAN parent 1: classid 1:1 htb rate "${ceil}mbit" ceil "${ceil}mbit"
+    sudo tc class add dev $WWAN parent 1:1 classid 1:10 htb rate "$(( ceil - 1 ))mbit" ceil "${ceil}mbit" prio 0 quantum 1400
+    sudo tc class add dev $WWAN parent 1:1 classid 1:20 htb rate 1mbit ceil "${ceil}mbit" prio 1 quantum 1400
+    sudo tc qdisc add dev $WWAN parent 1:10 pfifo limit "$LIMIT"
+    sudo tc qdisc add dev $WWAN parent 1:20 pfifo limit "$LIMIT"
     sudo iptables "${SHAPE_CHECK[@]}" 2>/dev/null || sudo iptables "${SHAPE_RULE[@]}" \
         || die "could not add the shaping rule"
     sudo iptables "${SHAPE_CHECK[@]}" || die "shaping rule did not land"
     mkdir -p "$OUT/test2c"
-    tc class show dev wwan0 | tee "$OUT/test2c/classes.txt" | sed 's/^/    /'
+    tc class show dev $WWAN | tee "$OUT/test2c/classes.txt" | sed 's/^/    /'
     say "rule: udp source port $GBR_PORT -> class 1:10 (priority 0, ${ceil} Mbit/s); everything else -> 1:20 (1 Mbit/s + leftovers)"
-    tc -s class show dev wwan0 > "$OUT/test2c/classes-before.txt"
+    tc -s class show dev $WWAN > "$OUT/test2c/classes-before.txt"
     pause_for_core "TEST 2c (Test 2 with the UE shaped at ${ceil} Mbit/s and GBR prioritised: GBR 120M vs default 20M)"
     run_flows "$OUT/test2c" \
         "gbr:$C -b 120M -t 120 -p 5201 --cport $GBR_PORT --get-server-output" \
-        "flood:$C -b 20M -t 120 -p 5202 --get-server-output"
-    tc -s class show dev wwan0 > "$OUT/test2c/classes-after.txt"
+        "flood:$C -b 20M -t 120 -p $GBR_PORT --get-server-output"
+    tc -s class show dev $WWAN > "$OUT/test2c/classes-after.txt"
     say "host classes during the test (packets sent / dropped):"
     paste <(awk '/^class htb/{c=$3} /Sent/{print c, $4, $7}' "$OUT/test2c/classes-before.txt") \
           <(awk '/Sent/{print $4, $7}' "$OUT/test2c/classes-after.txt") \
@@ -282,7 +281,7 @@ test3() {
         pause_for_core "TEST 3 step: GBR 20M vs default ${rate}M (4 streams)"
         run_flows "$OUT/test3-flood${rate}" \
             "gbr:$C -b 20M -t 60 -p 5201 --cport $GBR_PORT --get-server-output" \
-            "flood:$C -b $(( rate / 4 ))M -P 4 -t 60 -p 5202 --get-server-output"
+            "flood:$C -b $(( rate / 4 ))M -P 4 -t 60 -p $GBR_PORT --get-server-output"
     done
     python3 "$(dirname "${BASH_SOURCE[0]}")/lcp-analyse.py" --ramp "$OUT" | tee "$OUT/test3-ramp.txt"
 }

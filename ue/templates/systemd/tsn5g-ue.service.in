@@ -1,0 +1,25 @@
+# Rendered from ue/templates/systemd/tsn5g-ue.service.in by install.sh
+[Unit]
+Description=TSN-5G UE daemon and web UI (port ${API_PORT})
+Documentation=file://${PREFIX}/docs/DEPLOY.md
+After=network-online.target tsn5g-cam2-netns.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Runs as root: drives the modem (AT/QMI), tc/iptables, namespaces, ptp4l.
+User=root
+WorkingDirectory=${PREFIX}/ue
+Environment=PYTHONPATH=${PREFIX}/ue
+ExecStart=/usr/bin/python3 -m tsn5g_ue -c ${ETC_DIR}/tsn5g-ue.yaml
+ExecStartPre=-/bin/sh -c 'systemctl is-enabled ModemManager 2>/dev/null | grep -qx masked || logger -t tsn5g-ue "WARNING: ModemManager is not masked; it will contend for the modem"'
+Restart=on-failure
+RestartSec=3
+StateDirectory=tsn5g-ue
+RuntimeDirectory=tsn5g-ue
+# Keep /run/tsn5g-ue across restarts: it holds the data call's handle.
+RuntimeDirectoryPreserve=yes
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

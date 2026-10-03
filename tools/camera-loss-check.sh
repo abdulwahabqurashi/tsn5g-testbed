@@ -14,7 +14,8 @@
 
 set -uo pipefail
 DUR=${1:-30}
-CORE=tsn_server@10.5.1.19
+. "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+CORE=$CORE_SSH
 PCAP=/tmp/n3-camcheck-$(date +%s).pcap
 OUT=$HOME/radio-loss/camcheck-$(date +%Y%m%d-%H%M%S); mkdir -p "$OUT"
 
@@ -26,7 +27,7 @@ counts() {   # prints "camera1 <pkts> camera2 <pkts>"
 
 sudo true || exit 1                       # ask for the UE password up front
 pgrep -f bin/pathStream1 >/dev/null || { echo "error: cameras are not running"; exit 1; }
-counts | grep -q "camera1 0 camera2 0" && { echo "error: no camera counting rules on wwan0 (restart the daemon)"; exit 1; }
+counts | grep -q "camera1 0 camera2 0" && { echo "error: no camera counting rules on $WWAN (restart the daemon)"; exit 1; }
 
 echo "starting a ${DUR}s capture on the core (core sudo password next)..."
 ssh -t "$CORE" "sudo -b timeout $((DUR + 2)) tcpdump -i lo -n -s 128 -w $PCAP 'udp port 2152' >/dev/null 2>&1" || exit 1
@@ -40,7 +41,7 @@ echo "UE sent:   camera1 $((b1 - a1))   camera2 $((b2 - a2))   (datagrams, $(pyt
 
 # core side: count datagrams per camera inside the same wall-clock window
 scp -q "$(dirname "${BASH_SOURCE[0]}")/n3count.py" "$CORE:/tmp/n3count.py" 2>/dev/null
-ssh -o BatchMode=yes "$CORE" "python3 /tmp/n3count.py $PCAP $t0 $t1" | tee -a "$OUT/result.txt"
+ssh -o BatchMode=yes "$CORE" "CAM1_PORT=$CAM1_PORT CAM2_PORT=$CAM2_PORT python3 /tmp/n3count.py $PCAP $t0 $t1" | tee -a "$OUT/result.txt"
 python3 - "$OUT/result.txt" <<'PY'
 import re, sys
 t = open(sys.argv[1]).read()

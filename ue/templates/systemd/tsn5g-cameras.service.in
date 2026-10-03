@@ -1,0 +1,21 @@
+# Rendered from ue/templates/systemd/tsn5g-cameras.service.in by install.sh
+[Unit]
+Description=TSN-5G UE: both camera encoders on screen :${DISPLAY_NUM}, streaming
+Documentation=file://${PREFIX}/ue/scripts/cameras-start.sh
+Requires=tsn5g-cam2-netns.service tsn5g-vnc-display.service
+After=tsn5g-cam2-netns.service tsn5g-vnc-display.service tsn5g-ue.service
+Wants=tsn5g-ue.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=ENC_DISPLAY=:${DISPLAY_NUM}
+ExecStart=${PREFIX}/ue/scripts/cameras-start.sh start
+# The encoder app has no auto-start: press its Start button on the virtual
+# screen (XTEST, as the screen's owner) so video flows straight after boot.
+ExecStartPost=-/usr/sbin/runuser -u ${UE_USER} -- env PYTHONPATH=${PREFIX}/ue TSN5G_DISPLAY=:${DISPLAY_NUM} /usr/bin/python3 -m tsn5g_ue.encoder_gui 2
+ExecStop=${PREFIX}/ue/scripts/cameras-start.sh stop
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target

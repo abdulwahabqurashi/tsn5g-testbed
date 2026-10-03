@@ -6,6 +6,57 @@ back**. Commit hashes are filled in as `git log --oneline` shows them.
 
 ---
 
+## 3 — UE scripts, units and tools take their values from site.env
+
+**What**
+- `ue/templates/systemd/*.service.in` replace the four rig-bound units
+  (`tsn5g-ue`, `tsn5g-cam2-netns`, `tsn5g-vnc-display`, `tsn5g-cameras`):
+  code under `${PREFIX}/ue`, config at `${ETC_DIR}/tsn5g-ue.yaml`, screen
+  `:${DISPLAY_NUM}`, desktop user `${UE_USER}`.
+- `tsn5g-cameras` now also **presses the encoders' Start button** after
+  launching them (`ExecStartPost`, the same XTEST helper the UI uses), so
+  video flows after a reboot without anyone opening VNC.
+- `ue/templates/etc/`: sudoers (checked with `visudo -c`), polkit rule
+  (now also covers the three camera units), NetworkManager "leave the camera
+  NICs alone" conf (`CAM1_IF`, `CAM2_IF`), sysctl (16 MB socket ceilings,
+  `ip_forward` for camera 2's namespace).
+- `ue/scripts/site-env.sh`: the one place the rig scripts load settings from
+  (`$SITE_ENV`, then `/etc/tsn5g/site.env`, then the checkout's `site.env`).
+  `camera2-netns.sh`, `cameras-start.sh`, `vnc-display.sh` use it.
+- `install-autostart.sh` renders the unit templates instead of copying fixed
+  files; the UI's "up to date" check compares against the rendered template.
+- Measurement tools moved to `tools/` (`demo-run.sh`, `lcp-test.sh`,
+  `camera-loss-check.sh`, `radio-loss-test.sh` and their analysers) and read
+  `tools/common.sh`: `CORE_SSH` (user@core LAN address), `CORE_IP` (core across
+  the bearer), `WWAN`, `GBR_PORT`, camera ports. Any of them can be overridden
+  for one run, e.g. `CORE_SSH=me@host ./tools/demo-run.sh`.
+- Manual modem bring-up helpers `ue_qmi_up.sh` and `at.py` (previously outside
+  any repository) are now in `tools/modem/`, with defaults from site.env.
+
+**Why** — the old units and scripts named `/home/amrc/camera_application/…`,
+user `amrc`, `enp7s0`, `wwan0`, `tsn_server@10.5.1.19` directly. Two tools
+also used `CORE` for different things (an SSH target in one, the bearer
+address in another); the new names say which is which.
+
+**Deploy** — through `install.sh ue` (commit 4). To refresh only the boot units
+on a rig that already runs from `/opt/tsn5g`:
+```bash
+sudo /opt/tsn5g/ue/scripts/install-autostart.sh            # --start-cameras to take over running encoders
+```
+
+**Verify**
+```bash
+DRY_RUN=1 bash -c '. lib/render.sh; load_site; render ue/templates/etc/tsn5g-ue.sudoers.in /etc/sudoers.d/tsn5g-ue'
+visudo -c -f rendered/etc/sudoers.d/tsn5g-ue          # "parsed OK"
+grep -rn "/home/amrc\|tsn_server@" ue/templates tools   # nothing
+./tools/demo-run.sh                                      # still runs the demo end to end
+```
+
+**Roll back** — `git revert <this commit>`; re-install the previous units with
+the previous `install-autostart.sh`.
+
+---
+
 ## 2 — One settings file (site.env); UE code reads its site values from config
 
 **What**

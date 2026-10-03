@@ -30,15 +30,18 @@
 
 set -euo pipefail
 
-NS=cam2
-NIC=enp7s0                  # camera 2's interface
-CAM_ADDR=169.254.143.1/24   # must match cameras: in the config
-VETH_ROOT=veth-cam2
-VETH_NS=veth-cam2p
-ROOT_IP=10.200.2.1/30
-NS_IP=10.200.2.2/30
-NS_NET=10.200.2.0/30
-BEARER=wwan0
+. "$(dirname "${BASH_SOURCE[0]}")/site-env.sh"     # site.env: interfaces, addresses
+NS=${CAM2_NETNS:-cam2}
+NIC=${CAM2_IF:-enp7s0}                    # camera 2's interface
+CAM_ADDR=${CAM2_HOST_ADDR:-169.254.143.1/24}
+VETH_ROOT=veth-$NS
+VETH_NS=veth-${NS}p
+_VN=${CAM2_VETH_NET:-10.200.2}
+ROOT_IP=$_VN.1/30
+NS_IP=$_VN.2/30
+NS_NET=$_VN.0/30
+BEARER=${MODEM_WWAN:-wwan0}
+CORE=${CORE_BEARER_IP:-10.45.0.1}
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -78,7 +81,7 @@ up() {
     echo "ready. camera 2's encoder now runs with:"
     echo "  sudo ip netns exec $NS sudo -u $SUDO_USER \\"
     echo "      env DISPLAY=\$DISPLAY XAUTHORITY=\$XAUTHORITY \\"
-    echo "      /home/amrc/camera_application/U5G/x11/pathStream1/run.sh \\"
+    echo "      ${PREFIX:-/opt/tsn5g}/video/encoder/pathStream1/run.sh \\"
     echo "      camera2-besteffort.json"
     echo
     echo "note: $NIC has left the root namespace, so the tsn5g-ue daemon will"
@@ -157,7 +160,7 @@ status() {
     echo "root side:"
     ip -br addr show "$VETH_ROOT" 2>/dev/null | sed 's/^/  /' || echo "  $VETH_ROOT absent"
     echo "can the namespace reach the core?"
-    ip netns exec "$NS" ping -c1 -W2 10.45.0.1 >/dev/null 2>&1 \
+    ip netns exec "$NS" ping -c1 -W2 "$CORE" >/dev/null 2>&1 \
         && echo "  yes" || echo "  NO — check forwarding and the NAT rule"
 }
 

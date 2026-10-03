@@ -18,6 +18,7 @@ Read-only. Nothing here changes modem configuration or touches the bearer.
 """
 
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -148,7 +149,7 @@ def main():
     st, rel = call(base, "POST", "/api/modem/bus/release", {})
     report("bus released", PASS if st == 200 else FAIL, str(rel))
 
-    at_py = "/home/amrc/camera_application/at.py"
+    at_py = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "tools", "modem", "at.py")
     try:
         proc = subprocess.run(["sudo", "-n", at_py, "AT+CSQ"],
                               capture_output=True, text=True, timeout=40)

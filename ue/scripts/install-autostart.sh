@@ -1,19 +1,19 @@
 #!/bin/bash
 # Make the two-camera rig come back by itself after a reboot.
 #
-# Installs and enables three units beside tsn5g-ue.service:
+# Renders (from templates/systemd/*.in and site.env) and enables:
 #
-#   tsn5g-cam2-netns    camera 2's NIC into netns cam2       (before the daemon)
-#   tsn5g-vnc-display   virtual screen :99 + VNC on :5900    (as amrc)
-#   tsn5g-cameras       both encoders on :99                 (after all of the above)
+#   tsn5g-cam2-netns    camera 2's NIC into its own namespace   (before the daemon)
+#   tsn5g-vnc-display   virtual screen + VNC (localhost only)   (as UE_USER)
+#   tsn5g-cameras       both encoders on that screen, Start pressed
 #
-# Enabling is not starting. The namespace and screen units are started now,
-# because both are no-ops on a rig that already has them. The encoder unit is
-# NOT started unless --start-cameras is given: that would stop and relaunch the
-# encoders, and interrupting a live stream should be a decision.
+# install.sh ue does this as one of its steps; this script exists so the web
+# UI's "install boot units" button can redo just this part.
 #
-# Each encoder still needs its Start button pressed after boot (over VNC):
-# cameraStart is a Qt widget method, not a config key.
+# Enabling is not starting. The namespace and screen units are started now
+# (no-ops on a rig that already has them). The encoder unit is NOT started
+# unless --start-cameras is given: that relaunches the encoders, and
+# interrupting a live stream should be a decision.
 #
 # Usage:  sudo ./install-autostart.sh [--start-cameras] | --remove
 
@@ -34,8 +34,13 @@ if [ "${1:-}" = "--remove" ]; then
     exit 0
 fi
 
+# shellcheck disable=SC1091
+. "$HERE/../lib/render.sh"
+SITE=${SITE_ENV:-/etc/tsn5g/site.env}
+[ -f "$SITE" ] || SITE="$HERE/../site.env"
+load_site "$SITE"
 for u in "${UNITS[@]}"; do
-    install -m0644 "$HERE/systemd/$u" "/etc/systemd/system/$u"
+    render "$HERE/templates/systemd/$u.in" "/etc/systemd/system/$u"
 done
 systemctl daemon-reload
 systemctl enable "${UNITS[@]}" >/dev/null 2>&1

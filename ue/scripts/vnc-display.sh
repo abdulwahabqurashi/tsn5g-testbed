@@ -14,8 +14,8 @@
 #
 # x11vnc listens on localhost only. Reach it through an SSH tunnel:
 #
-#   ssh -L 5901:localhost:5900 amrc@amrc-DI-1200            # the UE
-#   ssh -L 5902:localhost:5900 tsn_server@amrctsnserver      # the core
+#   ssh -L 5901:localhost:5900 <UE_USER>@<UE_LAN_IP>        # the UE
+#   ssh -L 5902:localhost:5900 <CORE_USER>@<CORE_LAN_IP>    # the core
 #
 # then point a VNC viewer at localhost:5901 / localhost:5902.
 #
@@ -23,8 +23,9 @@
 
 set -uo pipefail
 
-DISP=${VNC_DISPLAY:-:99}
-GEOM=${VNC_GEOMETRY:-1920x1080x24}
+. "$(dirname "${BASH_SOURCE[0]}")/site-env.sh" 2>/dev/null || true   # site.env if present
+DISP=${VNC_DISPLAY:-:${DISPLAY_NUM:-99}}
+GEOM=${VNC_GEOMETRY:-${SCREEN_GEOMETRY:-1920x1080x24}}
 PORT=${VNC_PORT:-5900}
 LOGDIR=/tmp/vnc-display-$(id -un)
 N=${DISP#:}
