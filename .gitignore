@@ -1,0 +1,34 @@
+# --- Site-specific and secret: NEVER commit -----------------------------------
+# Copy site.env.example to site.env on each machine and fill it in.
+site.env
+secrets.env
+*.secret
+# Open5GS WebUI daily backups hold subscribers' K/OPc in plain text.
+backups/
+backup-*.json
+
+# --- Vendor bundles (FLIR Spinnaker + Qt): not redistributable, ~260 MB --------
+# The installers copy them from VENDOR_DIR (site.env) and check MANIFEST sha256.
+vendor/
+*.tar.gz
+*.zip
+
+# --- Generated -----------------------------------------------------------------
+build/
+out/
+rendered/
+dist/
+__pycache__/
+*.py[cod]
+*.egg-info/
+node_modules/
+.next/
+
+# --- Runtime / measurement output ----------------------------------------------
+*.log
+*.log.*
+*.pcap
+*.pcap[0-9]*
+*.zst
+state.json
+*.tmp
