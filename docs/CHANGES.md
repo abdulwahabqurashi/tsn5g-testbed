@@ -6,6 +6,53 @@ back**. Commit hashes are filled in as `git log --oneline` shows them.
 
 ---
 
+## 5 — Core configuration in git: gNB, Open5GS, subscriber
+
+**What**
+- `core/gnb/gnb.yaml.in` — the live `~/tsntestbed/gnb_x410.yaml` of
+  2026-10-03 with its comments, site values replaced by site.env variables
+  (PLMN, TAC, X410 address, ARFCN, band, bandwidth, SCS, sample rate, PCI,
+  gains, CPU sets). Two deliberate changes:
+  - `metrics.enable_log: false` — on, it raised RF underflows about 4×;
+    turn it on only while debugging the link.
+  - log file `/var/log/tsn5g/gnb.log` instead of the home directory.
+- `core/open5gs/configs/*.yaml.in` — the 12 network functions that run
+  (nrf scp ausf udm udr pcf nssf bsf amf smf upf tsn-af), from the fork's
+  `build/configs/open5gs/`. PLMN, TAC, DNN, UE pool, gateway and MTU come from
+  site.env. **Fix:** UDM pointed at `/etc/open5gs/hnet/*.key`, which did not
+  exist on the core; it now points at `${ETC_DIR}/open5gs/hnet/`, where
+  `install.sh core` generates per-site keys (commit 7).
+- `core/open5gs/subscriber.json.in` + `provision.sh` — the UE's record, which
+  until now existed only inside MongoDB: static IP, default 5QI 7, UL AMBR
+  50 Mbit/s, one PCC rule (5QI 4, GBR 25 / MBR 40 Mbit/s, "permit out udp/tcp
+  from any 1-65535 to assigned 5202"). K/OPc come from `secrets.env`; an
+  existing record's SQN is kept. `--dry-run` prints the record with keys masked.
+- site.env: `GBR_5QI`, `DEFAULT_5QI`, `UE_AMBR_UL_MBPS`, `GNB_SRATE`.
+
+**Why** — none of the core's configuration was under version control. The
+subscriber/PCC rule that the whole demo depends on was one accidental WebUI
+click from being lost.
+
+**Deploy** — nothing changes on the running core in this commit. The files are
+used by `install.sh core` (commit 7). To provision the subscriber on any core:
+```bash
+cp secrets.env.example secrets.env && chmod 600 secrets.env && nano secrets.env
+core/open5gs/provision.sh --dry-run        # check, keys masked
+sudo core/open5gs/provision.sh
+```
+
+**Verify** — rendered files equal the first rig's live ones except for the
+changes listed above:
+```bash
+DRY_RUN=1 bash -c '. lib/render.sh; load_site; render core/gnb/gnb.yaml.in /etc/tsn5g/gnb.yaml'
+diff rendered/etc/tsn5g/gnb.yaml ~/tsntestbed/gnb_x410.yaml     # on the first rig's core
+```
+
+**Roll back** — `git revert <this commit>`; nothing outside the repository
+changed.
+
+---
+
 ## 4 — `install.sh ue`: the whole UE in one command
 
 **What**

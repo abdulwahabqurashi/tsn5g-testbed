@@ -1,0 +1,365 @@
+# Rendered by install.sh core -> ${ETC_DIR}/gnb.yaml   (template: core/gnb/gnb.yaml.in)
+# srsRAN gNB for a USRP X410, 100 MHz n78 TDD, co-located with Open5GS.
+# Site values come from site.env; everything else is the first rig's tuned
+# state on 2026-10-03 (the comments below record why each value is what it is).
+#
+# srsRAN Project gNB config for USRP X410 + Open5GS (TSN/5G-ACIA) core
+# ---------------------------------------------------------------------------
+# Starting point for 5G SA bring-up. TUNE after Phase 1 (X410 probe) and after
+# confirming the srsRAN build's schema (compare against the example configs that
+# ship in srsRAN_Project/configs/ for your built version, e.g. gnb_rf_x300_tdd_n78_20mhz.yml).
+#
+# Key wiring:
+#   * N2/NGAP  -> Open5GS AMF on 127.0.0.5 (co-located; loopback SCTP)
+#   * PLMN 999/90, TAC 1, slice SST 1  (must match AMF/NRF and the SIM)
+#   * Radio    -> X410 over UHD (type=x4xx). addr defaults to 192.168.10.2;
+#                 update to the address confirmed by uhd_find_devices in Phase 1.
+# ---------------------------------------------------------------------------
+
+cu_cp:
+  amf:
+    addr: 127.0.0.5          # Open5GS AMF NGAP bind address
+    bind_addr: 127.0.0.1     # local SCTP bind (this host)
+    supported_tracking_areas:
+      - tac: ${TAC}
+        plmn_list:
+          - plmn: "${PLMN_MCC}${PLMN_MNC}"
+            tai_slice_support_list:
+              - sst: 1
+
+ru_sdr:
+  device_driver: uhd
+  # X410: update addr= to the value from `uhd_find_devices` (Phase 1).
+  device_args: type=x4xx,addr=${X410_ADDR},master_clock_rate=245.76e6,num_send_frames=512,num_recv_frames=512
+  srate: ${GNB_SRATE}              # 100 MHz/30 kHz SCS (273 PRB -> 4096-pt FFT). 245.76 / 122.88 = 2 (integer decimation). Restored 2026-09-22: the 50 MHz trial did NOT stop the wedges (4 more at the same rate), so capacity was never the cause - see the dl_arfcn note.
+  otw_format: sc16           # 16-bit OTW (sc12 unsupported by this UHD/X410 build). ~3.9 Gb/s per direction @122.88 Msps -> ~7.9 Gb/s total; fits 10G but with little headroom. NOTE: RF overflow wedges were traced to fwupd-refresh.service stalling the PCIe bus, NOT to this headroom - halving the rate did not help.
+  clock: internal            # switch to 'external' + PPS if TDD sync is unstable
+  sync: internal
+  tx_gain: ${GNB_TX_GAIN}                # ZBX cal @3400 MHz: gain 42 = +8 dBm FULL-SCALE. srsRAN's ~12 dB PAPR back-off makes real avg output lower (low single-digit dBm) — safe/low for room coverage. Bump live via `tx_gain 0 <g>` if weak.
+  rx_gain: ${GNB_RX_GAIN}
+
+cell_cfg:
+  dl_arfcn: ${GNB_DL_ARFCN}           # n78 carrier CENTRE = 3399.99 MHz, UNCHANGED throughout (must be even/step-2). At 100 MHz the carrier spans ~3350-3450 MHz.
+                             # dl_ssb_arfcn is deliberately NOT set: srsRAN auto-places the SSB inside the carrier (624000/3360 MHz at 100 MHz; it picked 625344/3380.16 MHz at 50 MHz). Pinning it would break any bandwidth change.
+                             # ROOT CAUSE of the recurring 'RF: overflow' wedge, found 2026-09-22: fwupd-refresh.service. All 5 captured wedges began within 1 s of it running (p ~ 5e-17). Fix = systemctl disable --now fwupd-refresh.timer.
+  band: ${GNB_BAND}
+  channel_bandwidth_MHz: ${GNB_BW_MHZ}
+  common_scs: ${GNB_SCS}
+  plmn: "${PLMN_MCC}${PLMN_MNC}"
+  tac: ${TAC}
+  pci: ${GNB_PCI}
+  nof_antennas_dl: 1
+  nof_antennas_ul: 1
+  # Added 2026-10-03: conservative uplink link adaptation. Metrics showed the
+  # uplink at MCS 21-24 (256-QAM table) failing 35-42% of transmissions
+  # whenever the measured SNR rose to ~22 dB; the default OLLA step (0.001)
+  # could not correct it in time. Restore by deleting this block.
+  pusch:
+    mcs_table: qam64            # was qam256 (default)
+    olla_snr_inc_step: 0.01     # was 0.001: react ~10x faster
+    olla_max_snr_offset: 10     # was 5 dB
+    olla_target_bler: 0.01      # default, stated explicitly
+
+  # QoS-aware scheduler policy, stated explicitly. srsRAN ALREADY defaults to
+  # this policy with all three weights enabled (du_high_config_cli11_schema.cpp
+  # :671 "By default, time-domain QoS-aware policy is used"; :2092 emplaces
+  # time_qos_scheduler_config{}; scheduler_expert_config.h:65-69 defaults
+  # priority/pdb/gbr_enabled all true). Pinned here so the experiment record
+  # states the values rather than inheriting them, and so a build change cannot
+  # silently move them.
+  #
+  # NOTE on naming: the design deck calls this qos_weight_function with values
+  # gbr_prioritized | multivariate. In THIS build (commit 4bf1543) the key is
+  # combine_function and the values are gbr_prioritized | geometric_mean.
+  # There is no 'multivariate'. A wrong key is ignored SILENTLY and reads as
+  # "5QI does nothing" - which is the exact false negative to avoid here.
+  scheduler:
+    policy:
+      qos_sched:
+        combine_function: gbr_prioritized
+        prio_enabled: true       # QoS Flow priority - the 5QI axis being tested
+        pdb_enabled: true        # Packet Delay Budget: 100 ms (5QI 7) vs 300 ms (5QI 9)
+        gbr_enabled: true        # inert here: every 5QI in this design is non-GBR
+
+# Per-UE scheduling and MAC metrics, 1 s period. Needed to tell "the scheduler
+# preferred UE 1" from "UE 2 had less to send" - without this Phase 2's central
+# claim cannot be falsified. Written to the log above (JSON reporting needs a
+# separate sink; log is sufficient and definitely lands).
+# Periodic, ~1 Hz, NOT per-slot - unlike all_level: info, which floods at
+# 100 MHz and stalls TX. If the underflow rate moves after enabling this, back
+# du_report_period off before blaming the radio.
+metrics:
+  # TEMPORARILY OFF 2026-09-23 to isolate the RF: late rate.
+  # After enabling metrics + the 5QI 7 profile, RF: late ran at 1670/min under
+  # uplink load (first event 15:39:14, two minutes after the UE attached; zero
+  # before that). Three candidates: this 1 Hz metrics logging (the log comment
+  # below warns that ~1 Hz async flushes stall TX), the 5QI 7 profile's RLC UM
+  # (no ARQ, where 5QI 9 was AM), or simply the higher load (radio-layer
+  # 80-103 Mb/s vs ~50 Mb/s in the 09-22 run).
+  # Flip this back to true once the A/B is done - everything else in this
+  # section is still correct and wanted.
+  enable_log: false           # per-UE UL SINR/BLER/PHR every 1 s. Useful for link debugging, but on
+                              # the first rig it raised RF underflows ~4x (LESSONS.md); turn on only to debug.
+  enable_json: false
+  enable_verbose: false
+  periodicity:
+    du_report_period: 1000
+  layers:
+    enable_sched: true
+    enable_mac: true
+    enable_rlc: true            # 2026-10-03: per-bearer RLC counts
+
+log:
+  filename: /var/log/tsn5g/gnb.log
+  all_level: warning         # 'info' floods [SCHED] logs at 100 MHz; the ~1 Hz async flush stalls TX → underflow. Raise only to debug a specific issue.
+  # RE-ENABLED 2026-10-03 10:2x for the LCP test series (Tests 0-3, see
+  # LCP-TEST-BRIEF-FOR-UE.md). COMMENT THIS OUT THE SAME DAY — it ran 09-28 to 10-03
+  # unattended last time and grew gnb.log to 36 GB.
+  mac_level: warning           # ADDED 2026-09-28 (review item C5) for the F3 modem-LCP run. THIS IS EXPENSIVE -
+                             # treat it exactly like rrc_level below: raised for ONE experiment, then restored.
+                             # RESTORE TO: warning (i.e. delete this line - unset inherits all_level).
+                             #
+                             # Why it is needed: F3 has to distinguish "modem ignores LC priority" (its LCG is
+                             # backlogged in the BSRs) from "loss is upstream of the MAC" (its LCG is mostly
+                             # empty). That needs per-LCG BSR reports. Those come from the SCHEDULER event
+                             # logger, and scheduler_event_logger.cpp:188 only emits the per-LCG report when
+                             # its mode == debug. There is NO sched_level key in this build (4bf1543); the only
+                             # keys are mac/rlc/f1ap/f1u/gtpu/du_level. And du_high_logger_registrator.h:38
+                             # sets the "MAC" and "SCHED" channels together from mac_level. So mac_level: debug
+                             # is the ONLY way to get BSRs here - there is no cheaper lever.
+                             #
+                             # Why it is expensive: [SCHED] at debug is per-slot at 100 MHz - the same class of
+                             # load that all_level: info is warned about one line above, and that took RF late
+                             # from ~15/min to ~1665/min on 2026-09-23 via 1 Hz metrics. EXPECT RF late to rise.
+                             # Use it for a BOUNDED run only (F1 item 7), compare against the C6 baseline in
+                             # review/c6-rf-late-baseline.txt, and restore immediately afterwards.
+  ngap_level: debug          # NGAP only - logs the PDU Session Resource Setup Request, which is
+                             # where the 5QI for each QoS flow is actually carried. Per-session,
+                             # not per-slot, so it is as cheap as rrc_level and will NOT cause the
+                             # flooding that all_level: info does at 100 MHz. Added 2026-09-22 to
+                             # verify the 5QI on the bearer; safe to leave on. DEBUG (not info) is required:
+                             # at info srsRAN logs only the PDU NAME, at debug it logs the decoded
+                             # ASN.1 including the 5QI in each QoS flow setup item.
+  config_level: debug        # Dumps the fully RESOLVED config at startup, once
+                             # (gnb.cpp:310-320: at debug it prints "Input
+                             # configuration (all values)", at info only the
+                             # non-default ones - and our scheduler settings ARE
+                             # the defaults, so info would not show them).
+                             # This is what turns "the key is in the file" into
+                             # "the gNB accepted it", which is what the deck's
+                             # RAN item 1 actually asks for. One-shot at start,
+                             # not per-slot, so it costs nothing at run time.
+                             # Note this build sets allow_config_extras(error)
+                             # at gnb.cpp:229 - an unknown key ABORTS startup
+                             # rather than being silently ignored, contrary to
+                             # the deck's warning. Both checks together are
+                             # conclusive.
+  f1ap_level: debug          # F1AP only - logs the UE Context Setup, which is
+                             # where each DRB's RLC mode is actually carried.
+                             # This is what proves the gNB APPLIED the 5QI 7
+                             # profile (um-bidir) rather than merely receiving
+                             # the value over NGAP - the two are different
+                             # claims and only the second was evidenced before.
+                             # Per-UE, a handful of lines at attach, NOT
+                             # per-slot: same cost argument as ngap_level, and
+                             # it will not confound the RF: late measurement.
+  rrc_level: debug           # RAISED to debug 2026-09-24 for ONE experiment, then
+                             # put back to info. At debug the RRC Reconfiguration
+                             # ASN.1 is dumped, which carries logicalChannelConfig
+                             # per bearer - its `priority` and `prioritisedBitRate`
+                             # are what the UE's LCP uses to split an uplink grant
+                             # between DRBs. This is the one unobserved link in the
+                             # GBR chain: everything from the Mongo PCC rule through
+                             # NGAP, the CU-CP patch and F1AP has been seen on the
+                             # wire, but whether the DU actually built the GBR MAC LC
+                             # config (priority 4, own LCG, PBR from gbr_ul) and
+                             # signalled it has only been read in the source.
+                             # If DRB 2 shows priority 4 + a large PBR, the gNB is
+                             # correct and the modem ignores it. If both DRBs show
+                             # identical values, there is another srsRAN gap.
+                             # Per-UE at attach, not per-slot - same cost as
+                             # ngap_level/f1ap_level, but the reconfiguration is
+                             # large, so do not leave it on. RESTORE TO: info
+  cu_level: debug            # CU-CP at debug makes verify_and_log_cell_group_config
+                             # (pdu_session_routine_helpers.cpp:73, called at :126 on
+                             # the DRB setup path) UNPACK the masterCellGroup and dump
+                             # it as JSON. That octet string is where the per-bearer
+                             # mac-LogicalChannelConfig actually lives - rrc_level:
+                             # debug alone shows it only as opaque hex, because the
+                             # DU builds it and the CU-CP forwards it without
+                             # decoding. RESTORE TO: warning — logs UE connection attempts so we can tell "UE never got on air" from "UE reached the gNB and failed later". Cheap: RRC events are per-UE, not per-slot, unlike phy/mac/sched.
+
+pcap:
+  mac_enable: false
+  ngap_enable: false
+
+# CPU pinning to fix 100 MHz RF underflows. The X410 NIC (enp109s0f1np1) is on
+# NUMA node 1, whose cores are 1,5,9,13,...,109. Keep the radio (RU) threads and
+# the upper-PHY thread pool ON node 1 so sample delivery to the X410 is node-local.
+# ru_cpus and main_pool_cpus are disjoint so radio threads aren't preempted.
+expert_execution:
+  affinities:
+    main_pool_cpus: "${GNB_MAIN_CPUS}"
+    main_pool_pinning: mask
+  cell_affinities:
+    - ru_cpus: "${GNB_RU_CPUS}"
+      ru_pinning: mask
+
+# ---------------------------------------------------------------------------
+# QoS / 5QI radio-bearer profiles.
+# Per-5QI RLC + PDCP tuning. Characteristics (priority, PDB, PER) are FIXED by
+# 3GPP TS 23.501 Table 5.7.4-1 and compiled into srsRAN
+# (lib/ran/qos/five_qi_qos_mapping.cpp) - they are NOT set here. What IS set
+# here is how the radio bearer is built to MEET them.
+# Timer values are restricted to the discrete sets in 3GPP TS 38.322 (RLC) and
+# TS 38.323 (PDCP); arbitrary integers are rejected.
+# ---------------------------------------------------------------------------
+qos:
+  -
+    # 5QI 9 - Non-GBR, priority 90, PDB 300 ms, PER 1e-6.
+    # TS 23.501: default bearer, best effort. This is the baseline profile.
+    five_qi: 9
+    pdcp:
+      tx:
+        sn: 18
+        discard_timer: -1        # infinity: no deadline to enforce at 300 ms PDB
+        status_report_required: false
+      rx:
+        sn: 18
+        t_reordering: 220
+        out_of_order_delivery: false
+    f1u_cu_up:
+      backoff_timer: 10
+    f1u_du:
+      backoff_timer: 10
+    rlc:
+      mode: am                   # AM: ARQ is required to reach PER 1e-6
+      am:
+        tx:
+          sn: 18
+          t-poll-retransmit: 100
+          max-retx-threshold: 32
+          poll-pdu: 16
+          poll-byte: -1
+          queue-size: 16384
+          queue-bytes: 6172672
+        rx:
+          sn: 18
+          t-reassembly: 20
+          t-status-prohibit: 10
+  -
+    # 5QI 7 - Non-GBR, priority 70, PDB 100 ms, PER 1e-3.
+    # TS 23.501: live-streaming video. This is UE 1's profile in the contention
+    # testbed (Cameras 1 & 2); UE 2 keeps 5QI 9 above.
+    #
+    # Values are the srsRAN stock profile from configs/qos.yml (five_qi: 7),
+    # reproduced inline so the whole radio-bearer config lives in one file.
+    # NOTE the deck describes this profile as "RLC UM, t-reassembly 10,
+    # discard_timer 10" - all three are wrong. The stock values are below.
+    #
+    # Two properties matter for the experiment and differ from 5QI 9:
+    #   * discard_timer -1 (infinity). A finite timer here would repeat the
+    #     2026-09-22 failure: 5QI 80's 10 ms budget against this link's
+    #     16-28 ms RTT killed uplink entirely (17.5 kb/s vs 110 Mb/s DL),
+    #     because uplink SDUs expired in the UE's PDCP waiting for a grant.
+    #     A 100 ms PDB is achievable here; anything under ~30 ms is not.
+    #   * RLC UM, not AM. No ARQ at all. That is per 3GPP for a 1e-3 PER
+    #     target, but it means a lost fragment is never retransmitted - and a
+    #     24 KB JPEG arrives as ~19 fragments where reassembly is
+    #     all-or-nothing. Comparing 5QI 7 against 5QI 9 therefore changes
+    #     retransmission behaviour as well as priority, which is a confound
+    #     for task 1.7 - see the readiness doc.
+    five_qi: 7
+    pdcp:
+      tx:
+        sn: 18
+        discard_timer: -1
+        status_report_required: false
+      rx:
+        sn: 18
+        t_reordering: 50
+        out_of_order_delivery: false
+    f1u_cu_up:
+      backoff_timer: 10
+    f1u_du:
+      backoff_timer: 10
+    rlc:
+      mode: am
+      am:
+        tx:
+          sn: 18
+          t-poll-retransmit: 100
+          max-retx-threshold: 32
+          poll-pdu: 16
+          poll-byte: -1
+          queue-size: 16384
+          queue-bytes: 6172672
+        rx:
+          sn: 18
+          t-reassembly: 20
+          t-status-prohibit: 10
+  -
+    # 5QI 4 - GBR, priority 50, PDB 300 ms, PER 1e-6.
+    # TS 23.501: non-conversational video (buffered streaming).
+    #
+    # Added 2026-09-24 to test UPLINK differentiation within a single UE.
+    # Why GBR specifically, and why this is the only lever that can work:
+    #   The gNB grants uplink per UE, not per bearer. The split between two
+    #   DRBs on one UE is decided by the UE's Logical Channel Prioritisation,
+    #   using the MAC LC config the gNB signals. In srsRAN
+    #   (mac_config_helpers.cpp:111) make_non_gbr_drb_mac_lc_config() takes NO
+    #   arguments - every non-GBR DRB gets an identical LC priority and
+    #   pbr = 8 kBps regardless of 5QI. That is why the 2026-09-24 saturation
+    #   test gave 890,350 vs 890,394 packets across 5QI 7 and 5QI 9: the two
+    #   logical channels were configured identically, so LCP round-robined.
+    #   make_gbr_drb_mac_lc_config() (:99) DOES parameterise: priority 4,
+    #   its own LCG, and pbr = get_pbr_ceil(gbr_ul). A GBR bearer is therefore
+    #   the only way to differentiate uplink within one UE on this build.
+    #
+    # Values are the srsRAN stock profile from configs/qos.yml (five_qi: 4).
+    # The GBR/MBR themselves are NOT set here - they come from the PCC rule in
+    # the subscriber document, and gbr_ul is what sets the PBR.
+    five_qi: 4
+    pdcp:
+      tx:
+        sn: 18
+        discard_timer: -1        # 2026-10-03: was 300; like 5QI 7
+        status_report_required: false
+      rx:
+        sn: 18
+        t_reordering: 140
+        out_of_order_delivery: false
+    f1u_cu_up:
+      backoff_timer: 10
+    f1u_du:
+      backoff_timer: 10
+    rlc:
+      # CHANGED 2026-09-28 (review item C2) from AM to UM.
+      # Why: the GBR-vs-non-GBR uplink A/B compared 5QI 4 on AM against 5QI 7 on
+      # UM, so every result to date - including the 1,335,446 / 1,335,402
+      # saturation run - varied retransmission behaviour as well as LC priority.
+      # Two variables, one measurement. Review checklist F1 item 1 requires both
+      # test bearers on the same RLC mode, and UM is the one 5QI 7 already uses.
+      # Structure mirrors the 5QI 7 block above key-for-key; this build aborts on
+      # unknown keys (allow_config_extras(error)), so nothing new is introduced.
+      # COST of this change, accepted deliberately: 5QI 4's 3GPP target is
+      # PER 1e-6, which needs ARQ. Under UM there is none, so this profile no
+      # longer meets its own error target. That is fine while the experiment is
+      # about LCP arbitration and not about reliability - but it makes 5QI 4 on
+      # UM a TEST profile, not a production one.
+      # RESTORE TO: mode am, with the am: block preserved in
+      #   gnb_x410.yaml.bak-prefix-c2c5-20260928-124718
+      mode: am
+      am:
+        tx:
+          sn: 18
+          t-poll-retransmit: 100
+          max-retx-threshold: 32
+          poll-pdu: 16
+          poll-byte: -1
+          queue-size: 16384
+          queue-bytes: 6172672
+        rx:
+          sn: 18
+          t-reassembly: 20
+          t-status-prohibit: 10

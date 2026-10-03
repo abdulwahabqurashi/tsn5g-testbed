@@ -1,0 +1,56 @@
+{
+  "imsi": "${UE_IMSI}",
+  "imeisv": "${UE_IMEISV}",
+  "msisdn": [],
+  "security": {
+    "k": "${UE_K}",
+    "opc": "${UE_OPC}",
+    "op": null,
+    "amf": "${UE_AMF}",
+    "sqn": { "$numberLong": "0" }
+  },
+  "ambr": { "downlink": { "value": 1, "unit": 3 }, "uplink": { "value": 1, "unit": 3 } },
+  "slice": [
+    {
+      "sst": 1,
+      "default_indicator": true,
+      "session": [
+        {
+          "name": "${DNN}",
+          "type": 1,
+          "qos": {
+            "index": ${DEFAULT_5QI},
+            "arp": { "priority_level": 8, "pre_emption_capability": 1, "pre_emption_vulnerability": 1 }
+          },
+          "ambr": {
+            "downlink": { "value": 1, "unit": 3 },
+            "uplink": { "value": ${UE_AMBR_UL_MBPS}, "unit": 2 }
+          },
+          "ue": { "ipv4": "${UE_IP}" },
+          "pcc_rule": [
+            {
+              "qos": {
+                "index": ${GBR_5QI},
+                "arp": { "priority_level": 5, "pre_emption_capability": 1, "pre_emption_vulnerability": 1 },
+                "gbr": { "downlink": { "value": ${GBR_UL_MBPS}, "unit": 2 }, "uplink": { "value": ${GBR_UL_MBPS}, "unit": 2 } },
+                "mbr": { "downlink": { "value": ${MBR_UL_MBPS}, "unit": 2 }, "uplink": { "value": ${MBR_UL_MBPS}, "unit": 2 } }
+              },
+              "flow": [
+                { "direction": 3, "description": "permit out tcp from any 1-65535 to assigned ${GBR_SOURCE_PORT}" },
+                { "direction": 3, "description": "permit out udp from any 1-65535 to assigned ${GBR_SOURCE_PORT}" }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "access_restriction_data": 32,
+  "subscriber_status": 0,
+  "operator_determined_barring": 0,
+  "network_access_mode": 0,
+  "subscribed_rau_tau_timer": 12,
+  "mme_host": [], "mme_realm": [], "purge_flag": [],
+  "schema_version": 1,
+  "__v": 0
+}
