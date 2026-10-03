@@ -12,10 +12,88 @@ modem:
   #   shallow — pfifo, the gate decides and this preserves the decision
   #   prio    — strict priority at the bottleneck; the control that answers
   #             "is the gate in the wrong place?"
+  #   limited — HTB, best effort hard-capped and protected free to borrow the
+  #             rest; the control for review item F4, "can the host protect the
+  #             stream whatever the modem does?". Needs be_mbps and link_mbps.
+  #             Mark the protected stream with CLASSIFY --set-class 1:10;
+  #             anything unmarked falls to the capped class, which is the safe
+  #             direction to be wrong in.
   #   default — leave the system default, for a baseline run with no policy
   egress_queue:
-    policy: shallow
-    limit: 20
+    policy: limited
+    # 256, measured rather than chosen. The leaf queues sit under each HTB
+    # class, and video is bursty: one JPEG frame is tens of packets arriving
+    # back to back, so a queue shorter than a frame overflows on every frame.
+    #
+    # With two cameras streaming, 1 Oct:
+    #     32 ->  30% loss,  6.5 Mbit/s
+    #     64 ->  17% loss,  8.5
+    #    128 -> 0.3% loss, 11.3
+    #    256 -> 0.0% loss, 11.4   <- knee; throughput plateaus here
+    #    500 -> 0.0% loss, 11.4   (no gain, more buffer)
+    #
+    # It was 20, which cost 38% of every camera's frames and looked like a
+    # radio problem. 20 is right for GATE work — shallow enough that the gate
+    # still governs what reaches the modem — and wrong for video. Those two
+    # needs genuinely conflict, and the gate has never run; revisit this when
+    # it does rather than assuming one value serves both.
+    limit: 256
+    # Read only by `limited`. link_mbps is the *loaded* median measured on this
+    # rig, not a nominal rate — HTB shapes against the number it is given, so a
+    # nominal ceiling would stop capping under exactly the load it exists for.
+    be_mbps: 30
+    link_mbps: 60
+  # Which stream goes in which lane. Applied with the queue on every data call,
+  # because the two are one policy: lanes with nothing steered into them put
+  # every stream in the default class, which is a single FIFO with extra steps.
+  #
+  # This was hand-typed until 30 Sep and did not survive a reboot. The queue
+  # came back correctly and the protected camera's traffic went entirely into
+  # best effort, with nothing reporting a fault. Hence: config, not commands.
+  #
+  # A stream with no entry falls to the capped lane, which is the safe
+  # direction to be wrong in.
+  egress_classes:
+    - name: camera1
+      proto: udp
+      dport: 50451
+      lane: protected        # -> HTB 1:10
+      masquerade: true       # pathStream1 binds to the camera-side address
+    - name: camera2
+      proto: udp
+      dport: 50452
+      lane: best_effort      # -> HTB 1:20 by the qdisc's own default
+      masquerade: true
+# ---------------------------------------------------------------------------
+# The camera-facing NICs. Both cameras fall back to link-local addressing, and
+# link-local addresses derive from the MAC — so two cameras from one batch land
+# on adjacent addresses inside the same /16. A /16 on two interfaces is one
+# subnet reached two ways: the kernel cannot choose, and Spinnaker refuses
+# outright ("adapter with conflicting IP and subnet address range").
+#
+# The separation is put on the UE side, so neither camera is reconfigured: each
+# interface takes a /24 containing exactly one camera.
+#
+# serial is checked, not assumed. pathStream1 picks its camera by nicid, an
+# index into enumeration order, and that order is not guaranteed across
+# reboots. An index pointing at the other camera would put the wrong stream in
+# the protected lane and report nothing wrong.
+# ---------------------------------------------------------------------------
+cameras:
+  - name: camera1
+    interface: enp8s0
+    address: 169.254.144.1/24
+    camera_ip: 169.254.144.18
+    serial: "25170575"
+    stream_port: 50451        # matches egress_classes -> protected lane
+  - name: camera2
+    interface: enp7s0
+    address: 169.254.143.1/24
+    camera_ip: 169.254.143.18
+    serial: "25170574"
+    netns: cam2               # scripts/camera2-netns.sh moves enp7s0 here
+    stream_port: 50452        # matches egress_classes -> best effort
+
 transport:
   mode: vxlan
 vxlan:
@@ -49,8 +127,49 @@ bridge:
 tsn_nics: []
 gptp:
   enabled: false
+# ---------------------------------------------------------------------------
+# Wired PTP to the grandmaster. Takes precedence over the gptp: block above.
+#
+# The grandmaster is an Ord-Bound clock running the IEEE 1588 default profile
+# over Ethernet, tagged on VLAN 4011, domain 0, clock identity
+# 00:05:80:ff:fe:08:7a:51. That profile choice is not cosmetic: 1588 uses
+# end-to-end delay and multicast 01:1B:19:00:00:00, where 802.1AS uses
+# peer-delay and 01:80:C2:00:00:0E. Point the wrong one at it and ptp4l listens
+# forever without ever erroring.
+#
+# utc_offset is set here because the grandmaster advertises utcOffsetValid =
+# false — a free-running clock usually does. Without it CLOCK_TAI comes out 37 s
+# wrong, which is invisible until a gate schedule is anchored to it.
+#
+# enabled stays false until the cable is in; turning it on before that leaves
+# ptp4l free-running on its own clock, which looks like success.
+# ---------------------------------------------------------------------------
+ptp:
+  enabled: true
+  profile: ieee1588
+  interface: enp3s0     # Intel I210, PHC 0 — the port cabled to the GM switch.
+                        # Also carries the untagged site LAN on 10.5.4.111; the
+                        # two coexist, because PTP rides a tagged VLAN and the
+                        # untagged traffic is untouched by a subinterface.
+  vlan: 4011            # null or omit if the switch port is an access port
+  domain: 0
+  utc_offset: 37
+  client_only: true
 tas:
-  default_profile: urllc-5qi82
+  # all-open is the no-gating baseline, and a deliberate default: applying a
+  # schedule should be an act, not something that happens because a config key
+  # had a value in it.
+  #
+  # It was urllc-5qi82, whose shortest open window is 150 us. A 1400-byte packet
+  # takes 211 us at the configured uplink, so that window cannot pass one — the
+  # gate would open, nothing would fit, and the result would read as "gating did
+  # not help" rather than "gating was never given time to".
+  #
+  # NOTE: this key resolves against switch.py's registry, which does NOT contain
+  # the video-* profiles — those live in tsnbridge/profiles.py. Two registries,
+  # drifted. Feasible choices here are all-open, ctrl-priority, cycle-3ms and
+  # long-4ms; everything else in that registry is infeasible at this link rate.
+  default_profile: all-open
 # ---------------------------------------------------------------------------
 # Software TSN bridge. Off until the data path is proven — turning it on does
 # nothing by itself; the build has to be triggered from the UI or the API.
@@ -91,8 +210,15 @@ tsnbridge:
   # Switch with POST /api/bridge/layout {"name": "..."} and rebuild. Both are
   # kept configured so the answer from the core and RAN decides it, not a
   # rewrite.
+  #
+  # ANSWERED, 24 Sep: shared-tunnel. per-camera-tunnel rested on two premises
+  # and both are now disproven — Open5GS cannot classify on DSCP (the token is
+  # silently discarded), and a correctly separated flow is not ranked by the
+  # modem anyway. Run F4 then showed the UE can protect a stream on its own,
+  # which is what shared-tunnel assumes. Both layouts stay defined; only the
+  # default moves.
   # ---------------------------------------------------------------------
-  layout: per-camera-tunnel
+  layout: shared-tunnel
 
   layouts:
     per-camera-tunnel:

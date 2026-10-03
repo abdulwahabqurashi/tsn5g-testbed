@@ -136,6 +136,13 @@ def register_all(jobs, controller):
         ctx.step("ptp4l", "starting the time-sync daemon")
         return controller.gptp_start(iface=ctx.params.get("iface"))
 
+    def gptp_restart(ctx):
+        ctx.plan(["stop", "start"])
+        ctx.step("stop", "stopping ptp4l and phc2sys")
+        controller.gptp_stop()
+        ctx.step("start", "starting them with the current settings")
+        return controller.gptp_start()
+
     # -- software TSN bridge -------------------------------------------------
     def bridge_build(ctx):
         """Create the data path, naming each device as it appears.
@@ -184,6 +191,37 @@ def register_all(jobs, controller):
     jobs.register("modem.check", modem_check, LANE_MODEM)
     jobs.register("net.transport_start", transport_start, LANE_NET)
     jobs.register("net.gptp_start", gptp_start, LANE_NET)
+    jobs.register("net.gptp_restart", gptp_restart, LANE_NET)
+
+    # -- guided PTP setup ------------------------------------------------------
+    from . import ptp_setup
+
+    def ptp_install(ctx):
+        ctx.plan(["install"])
+        ctx.step("install", "linuxptp and ethtool")
+        return {"installed": ptp_setup.install_dependencies(ctx.log),
+                **ptp_setup.dependencies()}
+
+    def ptp_setup_job(ctx):
+        p = ctx.params
+        g = controller.gptp
+        cams = tuple(c.get("interface") for c in controller.config.cameras or [])
+        try:
+            result = ptp_setup.setup(g, p.get("interface"), p.get("settings") or {}, ctx,
+                                     install=p.get("install", True), camera_ifaces=cams)
+        except ptp_setup.SetupError as exc:
+            ctx.log(f"STOPPED: {exc}")
+            raise
+        if p.get("persist", True):
+            block = dict(controller.config.as_dict().get("ptp") or {})
+            block.update(g.settings())
+            block["enabled"] = True
+            controller.config.update({"ptp": block})
+            ctx.log("saved as the default, so it starts like this after a restart")
+        return result
+
+    jobs.register("ptp.install", ptp_install, LANE_NET)
+    jobs.register("ptp.setup", ptp_setup_job, LANE_NET)
 
     # -- wifi ---------------------------------------------------------------
     def wifi_connect(ctx):
@@ -410,6 +448,62 @@ def register_all(jobs, controller):
     jobs.register("iperf.loop", iperf_loop, LANE_PERF)
     jobs.register("perf.load", perf_load, LANE_PERF)
     jobs.register("perf.flow", perf_flow, LANE_PERF)
+
+    # -- the two-camera rig ---------------------------------------------------
+    # Each replaces a command once typed with sudo. Anything that interrupts a
+    # stream is confirm=True, so the UI has to ask first.
+    from . import rig
+
+    def rig_netns_ensure(ctx):
+        ctx.plan(["ensure"])
+        ctx.step("ensure", "camera 2's namespace and its forwarding rules")
+        rig.netns_ensure(ctx.log)
+        return rig.netns_status()
+
+    def rig_netns_down(ctx):
+        ctx.plan(["down"])
+        ctx.step("down", "removing camera 2's namespace")
+        rig.netns_down(ctx.log)
+        return rig.netns_status()
+
+    def rig_encoders(ctx):
+        action = ctx.params.get("action", "start")
+        ctx.plan([action])
+        ctx.step(action, f"{action} both encoders (waits for the cameras to be free)")
+        return rig.encoders(action, ctx.log, camera_entries=controller.config.cameras,
+                            force=bool(ctx.params.get("force")), bearer=controller.bearer)
+
+    def rig_press_start(ctx):
+        ctx.plan(["press"])
+        ctx.step("press", "pressing Start in both encoder windows")
+        return rig.press_start(ctx.log, bearer=controller.bearer)
+
+    def rig_display_up(ctx):
+        ctx.plan(["display"])
+        ctx.step("display", "virtual screen :99 and VNC")
+        return rig.display_up(ctx.log)
+
+    def rig_nat_flush(ctx):
+        ctx.plan(["flush"])
+        ctx.step("flush", "clearing the camera streams' NAT state")
+        return rig.nat_flush(controller.bearer.egress_classes, ctx.log)
+
+    def rig_units_install(ctx):
+        ctx.plan(["install"])
+        ctx.step("install", "installing and enabling the boot units")
+        rig.install_units(ctx.log, start_cameras=ctx.params.get("start_cameras"))
+        return rig.units()
+
+    jobs.register("rig.netns_ensure", rig_netns_ensure, LANE_NET)
+    jobs.register("rig.netns_down", rig_netns_down, LANE_NET, confirm=True)
+    # Every action stops and relaunches, so even "start" interrupts a stream.
+    jobs.register("rig.encoders", rig_encoders, LANE_NET, confirm=True,
+                  explain="this restarts both camera encoders — both streams drop "
+                          "and each needs Start pressed again over VNC")
+    jobs.register("rig.display_up", rig_display_up, LANE_NET, confirm=True)
+    jobs.register("rig.nat_flush", rig_nat_flush, LANE_NET)
+    jobs.register("rig.press_start", rig_press_start, LANE_NET)
+    jobs.register("rig.units_install", rig_units_install, LANE_NET, confirm=True)
 
     logger.debug("registered %d job kinds", len(jobs.kinds()))
     return jobs

@@ -24,6 +24,18 @@ def register(router):
         """Per-subsystem health checks."""
         return req.ctx.controller.health()
 
+    @router.get("/api/cameras")
+    def cameras_status(req):
+        """Each camera-facing NIC, and whether the expected camera is there.
+
+        `serial_ok` is the one worth reading. The streaming application selects
+        its camera by an index into enumeration order, so two cameras swapping
+        places puts the wrong one in the protected lane — and every other
+        indicator still reads healthy.
+        """
+        from ..net import cameras as cams
+        return cams.describe(req.ctx.controller.config.cameras)
+
     @router.get("/api/stats")
     def stats(req):
         """Interface counters and rates, plus the link latency probe."""

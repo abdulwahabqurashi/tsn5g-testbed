@@ -1,10 +1,137 @@
 """The 5G data call."""
 
-from ..net import dscpaudit
+from ..net import dscpaudit, lanes, qdisc
 from .router import ApiError
 
 
 def register(router):
+
+    @router.get("/api/bearer/queue")
+    def queue_get(req):
+        """The egress queue policy, what the kernel actually has, and the lanes.
+
+        Config and kernel are reported side by side deliberately. They can
+        disagree — a policy that failed to apply leaves the previous queue in
+        place and the configured value still reads correctly — and reporting
+        only one of them is how that goes unnoticed.
+        """
+        b = getattr(req.ctx.controller, "bearer", None)
+        if b is None:
+            raise ApiError(503, "bearer manager not available")
+        return {
+            "policy": b.queue_policy, "limit": b.queue_limit,
+            "be_mbps": b.queue_be_mbps, "link_mbps": b.queue_link_mbps,
+            "policies": list(qdisc.POLICIES),
+            "live": qdisc.describe(b.iface, b.queue_policy, b.queue_limit,
+                                   be_mbps=b.autorate.effective_be_mbps()),
+            "classes": lanes.describe(b.iface, b.egress_classes),
+            "autorate": {k: v for k, v in b.autorate.status().items() if k != "history"},
+        }
+
+    @router.put("/api/bearer/queue")
+    def queue_set(req):
+        """Change the egress queue policy and apply it to the live bearer.
+
+        Applied immediately rather than at the next data call: this is the
+        control that demonstrates the whole point of the queue, and a switch
+        that needed a re-dial would drop the very streams it is meant to be
+        protecting.
+
+        Rebuilding the root qdisc discards whatever is queued at that instant,
+        so expect a sub-second blip on traffic in flight. That is the cost of
+        switching policy live and is the reason this is a deliberate action
+        rather than something applied on a timer.
+        """
+        b = getattr(req.ctx.controller, "bearer", None)
+        if b is None:
+            raise ApiError(503, "bearer manager not available")
+
+        policy = req.choice("policy", qdisc.POLICIES, default=b.queue_policy)
+        limit = req.integer("limit", default=b.queue_limit, lo=1, hi=10000)
+        be_mbps = req.integer("be_mbps", default=b.queue_be_mbps, lo=1, hi=10000)
+        link_mbps = req.integer("link_mbps", default=b.queue_link_mbps,
+                                lo=1, hi=10000)
+        if policy == qdisc.LIMITED and be_mbps >= link_mbps:
+            raise ApiError(400, f"a best-effort cap of {be_mbps} Mbit/s on a "
+                                f"{link_mbps} Mbit/s link caps nothing — the "
+                                f"whole point is that it is smaller")
+
+        try:
+            live = qdisc.apply(b.iface, policy, limit, priomap=b.queue_priomap,
+                               be_mbps=be_mbps, link_mbps=link_mbps)
+        except qdisc.QdiscError as exc:
+            # The previous queue is still in place; say so rather than leaving
+            # the caller to assume the change took.
+            raise ApiError(409, f"{exc} — the previous queue is unchanged") from None
+
+        b.queue_policy, b.queue_limit = policy, limit
+        b.queue_be_mbps, b.queue_link_mbps = be_mbps, link_mbps
+        # The tree was rebuilt with static rates; let auto-rate re-take it (or
+        # stand down, if the new policy is not 'limited').
+        b.autorate.restart()
+        # Persist the complete block: the overlay replaces this sub-dict rather
+        # than merging into it, so a partial write would drop the other keys.
+        req.ctx.controller.config.update({"modem": {"egress_queue": {
+            "policy": policy, "limit": limit,
+            "be_mbps": be_mbps, "link_mbps": link_mbps}}})
+
+        return {"policy": policy, "limit": limit, "be_mbps": be_mbps,
+                "link_mbps": link_mbps, "live": live,
+                "classes": lanes.describe(b.iface, b.egress_classes)}
+
+    @router.get("/api/bearer/autorate")
+    def autorate_get(req):
+        """Auto-rate state: current shaping rate, round trip, load, history."""
+        b = getattr(req.ctx.controller, "bearer", None)
+        if b is None:
+            raise ApiError(503, "bearer manager not available")
+        return b.autorate.status()
+
+    @router.put("/api/bearer/autorate")
+    def autorate_set(req):
+        """Turn auto-rate on or off and tune it. Saved to modem.autorate.
+
+        Body (all optional): enabled, min_mbps, max_mbps, reserve_mbps,
+        delay_hi_ms, delay_lo_ms. Needs the 'limited' queue policy to act.
+        """
+        b = getattr(req.ctx.controller, "bearer", None)
+        if b is None:
+            raise ApiError(503, "bearer manager not available")
+        body = req.body
+        kw = {k: body.get(k) for k in ("enabled", "min_mbps", "max_mbps",
+                                        "reserve_mbps", "delay_hi_ms", "delay_lo_ms")}
+        try:
+            cfg = b.autorate.configure(**kw)
+        except (ValueError, TypeError) as exc:
+            raise ApiError(400, str(exc)) from None
+        req.ctx.controller.config.update({"modem": {"autorate": {
+            k: cfg[k] for k in ("enabled", "min_mbps", "max_mbps", "reserve_mbps",
+                                "delay_hi_ms", "delay_lo_ms")}}})
+        import time as _t
+        _t.sleep(1.0)       # let it take the tree, so the reply shows it running
+        return b.autorate.status()
+
+    @router.get("/api/bearer/counters")
+    def counters(req):
+        """Cumulative counters, per lane and per camera, for live rates.
+
+        Cumulative rather than rates: the caller takes two readings and
+        divides by `t`, so two clients polling at different speeds cannot
+        disturb each other's numbers. `t` is monotonic seconds.
+
+        Per-camera counts are whole datagrams leaving on the bearer (before
+        fragmentation); the qdisc and class counts are packets after it.
+        Installs a camera's counting rule the first time if it is missing.
+        """
+        import time
+        b = getattr(req.ctx.controller, "bearer", None)
+        if b is None:
+            raise ApiError(503, "bearer manager not available")
+        return {"t": time.monotonic(), "interface": b.iface,
+                "policy": b.queue_policy, "be_mbps": b.autorate.effective_be_mbps(),
+                "link_mbps": b.queue_link_mbps,
+                "qdisc": qdisc.stats(b.iface),
+                "streams": lanes.counters(b.iface, b.egress_classes)}
 
     @router.get("/api/bearer")
     def state(req):

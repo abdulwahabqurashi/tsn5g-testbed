@@ -11,6 +11,7 @@ import { svg } from "../core/dom.js";
 
 const PATHS = {
   grid: "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z",
+  camera: "M4 8h3l2-2h6l2 2h3v10H4zM12 16a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
   bolt: "M13 3 4 14h6l-1 7 9-11h-6z",
   swap: "M7 7h13l-3-3M17 17H4l3 3",
   chip: "M8 8h8v8H8zM4 10V8M4 14v2M20 10V8M20 14v2M9 4h2M13 4h2M9 20h2M13 20h2"

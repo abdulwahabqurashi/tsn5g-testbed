@@ -17,7 +17,12 @@ body {
   background: var(--panel); border-right: 1px solid var(--line);
   display: flex; flex-direction: column; padding: 16px 12px;
   position: sticky; top: 0; height: 100vh;
+  /* The menu outgrew a short window once Cameras was added: with a fixed
+     height and no overflow it spilled past the panel's background and the
+     last entries could not be reached. Scroll inside the sidebar instead. */
+  overflow-y: auto; overscroll-behavior: contain;
 }
+.sidebar > * { flex-shrink: 0; }
 .brand { display: flex; align-items: center; gap: 11px; padding: 6px 10px 22px; }
 .brand-logo {
   width: 34px; height: 34px; border-radius: 10px; flex: none;

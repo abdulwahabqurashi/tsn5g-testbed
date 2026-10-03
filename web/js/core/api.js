@@ -200,6 +200,13 @@ export function createApi({ base = "", timeout = 8000, fetchImpl, onCall } = {})
     gptp: {
       start: (body, o) => POST("/api/gptp/start", body, o),
       stop: (o) => POST("/api/gptp/stop", {}, o),
+      restart: (o) => POST("/api/gptp/restart", {}, o),
+      status: (o) => GET("/api/ptp/status", o),
+      settings: (o) => GET("/api/ptp/settings", o),
+      saveSettings: (body, o) => PUT("/api/ptp/settings", body, o),
+      nics: (o) => GET("/api/ptp/nics", o),
+      install: (o) => POST("/api/ptp/dependencies/install", {}, o),
+      setup: (body, o) => POST("/api/ptp/setup", body, { ...o, timeout: 15000 }),
     },
 
     tas: {
@@ -236,8 +243,29 @@ export function createApi({ base = "", timeout = 8000, fetchImpl, onCall } = {})
     },
 
     // -- network ---------------------------------------------------------
+    rig: {
+      status: (o) => GET("/api/rig", o),
+      netnsEnsure: (o) => POST("/api/rig/netns/ensure", {}, o),
+      netnsDown: (body, o) => POST("/api/rig/netns/down", body ?? {}, o),
+      encoders: (action, body, o) => POST(`/api/rig/encoders/${encodeURIComponent(action)}`, body ?? {}, o),
+      displayUp: (body, o) => POST("/api/rig/display/up", body ?? {}, o),
+      natFlush: (o) => POST("/api/rig/nat/flush", {}, o),
+      binding: (o) => GET("/api/rig/binding", o),
+      setBinding: (body, o) => PUT("/api/rig/binding", body, o),
+      setGbr: (body, o) => PUT("/api/rig/gbr", body, o),
+      checklist: (o) => GET("/api/rig/checklist", o),
+      fix: (step, o) => POST(`/api/rig/fix/${encodeURIComponent(step)}`, {}, o),
+      installUnits: (body, o) => POST("/api/rig/units/install", body ?? {}, o),
+    },
+
     bearer: {
       get: (o) => GET("/api/bearer", o),
+      queue: (o) => GET("/api/bearer/queue", o),
+      setQueue: (body, o) => PUT("/api/bearer/queue", body, o),
+      counters: (o) => GET("/api/bearer/counters", o),
+      autorate: (o) => GET("/api/bearer/autorate", o),
+      setAutorate: (body, o) => PUT("/api/bearer/autorate", body, o),
+      cameras: (o) => GET("/api/cameras", o),
       up: (body, o) => POST("/api/bearer/up", body, o),
       down: (body, o) => POST("/api/bearer/down", body, o),
       cycle: (body, o) => POST("/api/bearer/cycle", body, o),

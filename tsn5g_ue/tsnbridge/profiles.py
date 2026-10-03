@@ -84,7 +84,81 @@ PROFILES = {
                            "slots": [(0x80, 450_000), (0x00, 30_000),
                                      (0x10, 900_000), (0xFF, 1_620_000)],
                            "guard": True,
-                           "desc": "video-heavy; 75% of the switch hardware ceiling"},
+                           "desc": "video-heavy; 71.5% of the switch hardware ceiling"},
+
+    # -- Video profiles, sized for the bearer -------------------------------
+    #
+    # Every profile above this line was written against a 1 Gbit/s switch port,
+    # where a 1400-byte frame serialises in 11 us and a 150 us window holds
+    # thirteen of them. There is no switch in this testbed any more: the
+    # bottleneck is the uplink, where the same frame takes 211 us at the
+    # measured median of 53 Mbit/s and 386 us at the measured floor of 29. The
+    # windows did not change; the link under them did, and it made the three
+    # shortest profiles unable to pass a single packet in their CONTROL window.
+    #
+    # Two things are fixed across all six, and both are consequences of the
+    # bearer rather than preferences:
+    #
+    #   The guard is 400 us, not 30. A guard exists to absorb a frame that was
+    #   already in flight when the gate shut, so it has to be at least one
+    #   frame long — and taprio here is software-mode with no `flags`, so it is
+    #   not length-aware and *will* start a frame it cannot finish. 400 us
+    #   holds one full frame even at the 29 Mbit/s floor, which is when the
+    #   guard actually matters. Sizing it for the median instead would make it
+    #   a guard only while the radio is behaving.
+    #
+    #   The guard is an absolute, so it is a different fraction of every cycle
+    #   (20% of 2 ms, 5% of 8 ms). That is not an inconsistency to tidy up: one
+    #   packet is one packet regardless of how long the cycle around it is.
+    #
+    # The protected window carries CONTROL and HP_VIDEO together (0x90). On the
+    # two-class UE bridge both fold to tc1, so a separate HP window would be a
+    # distinction the gate cannot express — see switch_mask_to_tc().
+
+    # Cycle sweep: protected share held at 39%, cycle the only variable. 39%
+    # because it is the smallest share that still holds two frames at the
+    # 29 Mbit/s floor in the tightest cycle (2 ms), and it covers a 20 Mbit/s
+    # protected stream on a 53 Mbit/s link with headroom.
+    "video-2ms":          {"cycle": 2_000_000,
+                           "slots": [(0x90, 780_000), (0x00, 400_000),
+                                     (0xFF, 820_000)],
+                           "guard": True,
+                           "desc": "video, 2 ms cycle — 39% protected; the "
+                                   "shortest cycle this bearer can serialise"},
+    "video-4ms":          {"cycle": 4_000_000,
+                           "slots": [(0x90, 1_560_000), (0x00, 400_000),
+                                     (0xFF, 2_040_000)],
+                           "guard": True,
+                           "desc": "video, 4 ms cycle — 39% protected"},
+    "video-8ms":          {"cycle": 8_000_000,
+                           "slots": [(0x90, 3_120_000), (0x00, 400_000),
+                                     (0xFF, 4_480_000)],
+                           "guard": True,
+                           "desc": "video, 8 ms cycle — 39% protected"},
+
+    # Share sweep: cycle held at 4 ms, the protected share the only variable.
+    # This is the axis a video use case actually poses — how much of the uplink
+    # Camera 1 reserves. At 20 Mbit/s on a 53 Mbit/s link the stream needs
+    # ~38%, so p25 should starve it, p40 should just carry it and p55 should
+    # have headroom. A sweep whose middle point is the predicted boundary.
+    "video-4ms-p25":      {"cycle": 4_000_000,
+                           "slots": [(0x90, 1_000_000), (0x00, 400_000),
+                                     (0xFF, 2_600_000)],
+                           "guard": True,
+                           "desc": "video, 4 ms cycle — 25% protected "
+                                   "(below a 20 Mbit/s stream's share)"},
+    "video-4ms-p40":      {"cycle": 4_000_000,
+                           "slots": [(0x90, 1_600_000), (0x00, 400_000),
+                                     (0xFF, 2_000_000)],
+                           "guard": True,
+                           "desc": "video, 4 ms cycle — 40% protected "
+                                   "(just above a 20 Mbit/s stream's share)"},
+    "video-4ms-p55":      {"cycle": 4_000_000,
+                           "slots": [(0x90, 2_200_000), (0x00, 400_000),
+                                     (0xFF, 1_400_000)],
+                           "guard": True,
+                           "desc": "video, 4 ms cycle — 55% protected "
+                                   "(headroom above a 20 Mbit/s stream)"},
 }
 
 

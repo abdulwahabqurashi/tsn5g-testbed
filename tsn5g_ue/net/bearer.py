@@ -32,7 +32,7 @@ import re
 import time
 
 from .. import utils
-from . import qdisc
+from . import lanes, qdisc
 from ..modem.qmi import QmiError
 
 logger = logging.getLogger("tsn5g-ue.bearer")
@@ -69,6 +69,21 @@ class BearerManager:
         self.queue_policy = q.get("policy", qdisc.SHALLOW)
         self.queue_limit = int(q.get("limit", qdisc.DEFAULT_LIMIT))
         self.queue_priomap = q.get("priomap")
+        # Only read by the `limited` policy. Kept beside the others rather than
+        # inside it because a rate cap that silently fell back to a default is
+        # the failure this whole module is written against.
+        self.queue_be_mbps = int(q.get("be_mbps", qdisc.DEFAULT_BE_MBPS))
+        self.queue_link_mbps = int(q.get("link_mbps", qdisc.DEFAULT_LINK_MBPS))
+        # Auto-rate keeps the lanes' total just under the radio's capacity, so
+        # the queue (and with it the priority decision) stays on the UE. Its
+        # settings live at modem.autorate, not inside egress_queue, because the
+        # queue API rewrites egress_queue wholesale.
+        from .autorate import AutoRate
+        self.autorate = AutoRate(self, cfg.get("autorate"))
+        # Which stream goes in which lane. Applied beside the queue itself so
+        # the two halves cannot drift apart — lanes with nothing steered into
+        # them are a single FIFO with extra steps, and that failure is silent.
+        self.egress_classes = cfg.get("egress_classes") or []
         self.qmi = qmi
         self.modem = modem
         self.events = events
@@ -98,7 +113,11 @@ class BearerManager:
             "interface": self.iface,
             "state": "up" if addr else "down",
             "egress_queue": qdisc.describe(self.iface, self.queue_policy,
-                                           self.queue_limit),
+                                           self.queue_limit,
+                                           be_mbps=self.autorate.effective_be_mbps()),
+            # Reported beside the queue, because a mismatch here means the
+            # lanes are carrying nothing they were built for.
+            "egress_classes": lanes.describe(self.iface, self.egress_classes),
             "ipv4": addr,
             "apn": state.get("apn") or self.apn,
             "pdh": state.get("pdh"),
@@ -316,9 +335,24 @@ class BearerManager:
         # correctly configured gate comes to measure nothing.
         try:
             live = qdisc.apply(self.iface, self.queue_policy, self.queue_limit,
-                               priomap=self.queue_priomap)
+                               priomap=self.queue_priomap,
+                               be_mbps=self.queue_be_mbps,
+                               link_mbps=self.queue_link_mbps)
             say(f"egress queue {self.queue_policy} -> {live['raw']}")
-        except qdisc.QdiscError as exc:
+            # A fresh tree carries the static rates; auto-rate re-takes it.
+            if self.autorate.cfg.get("enabled"):
+                self.autorate.restart()
+                say(f"auto-rate: {self.autorate.status().get('reason') or 'running'}")
+            # The other half. iptables rules survive a data call but not a
+            # reboot, so this is re-asserted here rather than left to a
+            # one-shot at startup; it is idempotent and costs a few -C checks.
+            if self.egress_classes:
+                placed = lanes.apply(self.iface, self.egress_classes)
+                for p in placed:
+                    say(f"lane {p['name']} udp/{p['dport']} -> {p['classid']}")
+                n = lanes.flush_conntrack(self.egress_classes)
+                say(f"cleared {n} stale NAT record(s) for the camera streams")
+        except (qdisc.QdiscError, lanes.LaneError) as exc:
             # Not fatal: the bearer still carries traffic. But it is loud,
             # because every scheduling result measured from here is suspect.
             say(f"WARNING: egress queue not applied: {exc}")
@@ -505,6 +539,7 @@ class BearerManager:
 
     def down(self, ctx=None):
         """Stop the call using the saved handle, then clear the interface."""
+        self.autorate.stop()
         def say(line):
             if ctx:
                 ctx.log(line)

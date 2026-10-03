@@ -25,6 +25,24 @@ class MarkError(RuntimeError):
     pass
 
 
+def _set_class(spec):
+    """The `--set-class major:minor` value for a spec.
+
+    Two callers want different halves of the same field. The gate wants a bare
+    802.1p priority, which is `0:<prio>` — major 0, because no classful qdisc is
+    meant to claim it. HTB wants a real classid like `1:10`, because
+    CLASSIFY writes skb->priority and HTB reads exactly that as a class
+    handle, which is what lets the lanes work without a single tc filter.
+
+    So `classid` wins when given, and `priority` is the shorthand for the
+    gate's case.
+    """
+    cid = spec.get("classid")
+    if cid:
+        return str(cid)
+    return f"0:{int(spec['priority'])}"
+
+
 def _rule(spec):
     """The iptables argument vector for one classification rule.
 
@@ -45,23 +63,35 @@ def _rule(spec):
         argv += ["-s", spec["src"]]
     if spec.get("oif"):
         argv += ["-o", spec["oif"]]
-    argv += ["-j", "CLASSIFY", "--set-class", f"0:{int(spec['priority'])}"]
+    argv += ["-j", "CLASSIFY", "--set-class", _set_class(spec)]
     return argv
 
 
 def exists(spec):
-    proc = utils.run(["iptables", *_rule(spec)[:1], "-C", *_rule(spec)[1:]],
+    """True if exactly this rule is already in the table.
+
+    The argv splice matters and was wrong here: `_rule()` returns
+    `-t mangle POSTROUTING ...`, so inserting `-C` after the first element
+    produced `iptables -t -C mangle POSTROUTING ...` — `-t` swallowed `-C` as
+    its table name and the command failed every time, whether or not the rule
+    was present. `add()` has always spliced correctly, which is why it stayed
+    idempotent and this went unnoticed until something checked a rule it had
+    just successfully installed.
+    """
+    argv = _rule(spec)
+    proc = utils.run(["iptables", argv[0], argv[1], "-C", *argv[2:]],
                      check=False, timeout=10)
     return proc.returncode == 0
 
 
 def add(spec, dry_run=False):
     """Install one rule. Idempotent: an identical rule is not duplicated."""
-    if "priority" not in spec:
-        raise MarkError("a rule needs a priority (0-7)")
-    prio = int(spec["priority"])
-    if not 0 <= prio <= 7:
-        raise MarkError(f"priority {prio} is out of range; 802.1p is 0-7")
+    if "classid" not in spec:
+        if "priority" not in spec:
+            raise MarkError("a rule needs either a priority (0-7) or a classid")
+        prio = int(spec["priority"])
+        if not 0 <= prio <= 7:
+            raise MarkError(f"priority {prio} is out of range; 802.1p is 0-7")
 
     argv = _rule(spec)
     if dry_run:
@@ -77,8 +107,8 @@ def add(spec, dry_run=False):
     if proc.returncode != 0:
         raise MarkError(
             f"could not install the rule: {(proc.stderr or '').strip()}")
-    logger.info("classify: %s -> priority %d",
-                spec.get("dport") or spec.get("dst") or "any", prio)
+    logger.info("classify: %s -> %s",
+                spec.get("dport") or spec.get("dst") or "any", _set_class(spec))
     return {"ok": True, "rule": " ".join(argv)}
 
 

@@ -70,7 +70,24 @@ class Config:
 
     @property
     def gptp(self):
+        """The PTP manager's config.
+
+        `ptp:` wins over the older `gptp:` block when present. They configure
+        the same daemon in different profiles — 802.1AS versus the IEEE 1588
+        default profile — and which one is correct is decided by the
+        grandmaster, not by us. Keeping both means switching profile is a config
+        change rather than a code change, and the older block keeps working for
+        anyone still pointed at an 802.1AS bridge.
+        """
+        ptp = self._raw.get("ptp")
+        if ptp:
+            return {"profile": "ieee1588", **ptp}
         return self._raw.get("gptp", {"enabled": True})
+
+    @property
+    def cameras(self):
+        """The camera-facing NICs and which camera should be behind each."""
+        return self._raw.get("cameras", [])
 
     @property
     def switch(self):

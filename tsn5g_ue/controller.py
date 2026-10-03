@@ -20,6 +20,7 @@ from .config import Config, StateStore
 from .discovery import Discovery
 from .tsnbridge import BridgeManager
 from .gptp import GptpManager
+from .net import cameras
 from .modem import ModemManager
 from .modem.bus import ModemBus
 from .modem.power import PowerControl
@@ -127,8 +128,30 @@ class Controller:
     # ------------------------------------------------------------- lifecycle
     def start(self):
         self.state = C.STATE_IDLE
+        self._apply_cameras()
         logger.info("controller ready — state=%s", self.state)
         self.resume()
+
+    def _apply_cameras(self):
+        """Address the camera NICs and confirm the right camera is behind each.
+
+        At startup rather than on a data call: these are wired interfaces that
+        have nothing to do with the bearer, and they are lost on reboot rather
+        than on re-dial. Failures are logged and not raised — a camera being
+        absent should not stop the daemon coming up, because the bearer, the
+        modem and the console are all still worth having without it.
+        """
+        entries = self.config.cameras
+        if not entries:
+            return
+        try:
+            for r in cameras.apply(entries):
+                if not r.get("ok"):
+                    logger.warning("camera %s is not ready: %s", r.get("name"),
+                                   r.get("error") or r.get("reason")
+                                   or "serial mismatch")
+        except Exception as exc:            # noqa: BLE001
+            logger.warning("could not set up the camera interfaces: %s", exc)
 
     def _on_bearer_change(self, state):
         """Called after every successful bring-up."""

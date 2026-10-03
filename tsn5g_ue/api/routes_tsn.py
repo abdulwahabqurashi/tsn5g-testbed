@@ -6,6 +6,10 @@ unchanged — the long-running verbs simply become jobs.
 """
 
 
+from .. import gptp as gptp_mod
+from .router import ApiError
+
+
 def register(router):
 
     # -- transport ----------------------------------------------------------
@@ -33,6 +37,112 @@ def register(router):
     def gptp_stop(req):
         """Stop ptp4l."""
         return req.ctx.controller.gptp_stop()
+
+    @router.post("/api/gptp/restart")
+    def gptp_restart(req):
+        """Stop and start ptp4l + phc2sys with the current settings."""
+        return req.ctx.submit_job("net.gptp_restart", {})
+
+    @router.get("/api/ptp/nics")
+    def ptp_nics(req):
+        """Physical NICs that can do hardware PTP, best candidate first."""
+        from .. import ptp_setup
+        g = req.ctx.controller.gptp
+        cams = tuple(c.get("interface") for c in req.ctx.controller.config.cameras or [])
+        return {**ptp_setup.list_nics(configured=g.phys_iface, camera_ifaces=cams,
+                                      vlan=g.vlan),
+                "dependencies": ptp_setup.dependencies(),
+                "running_on": g.status.get("interface") if g.status.get("running") else None}
+
+    @router.post("/api/ptp/dependencies/install")
+    def ptp_install(req):
+        """apt-get install linuxptp / ethtool if missing."""
+        return req.ctx.submit_job("ptp.install", {})
+
+    @router.post("/api/ptp/setup")
+    def ptp_setup_run(req):
+        """The guided start: install if needed, check the NIC, apply settings,
+        start, wait for lock, verify CLOCK_TAI. Each step reports as it goes.
+
+        Body: interface (required), profile, vlan (null = untagged), domain,
+        utc_offset, install (default true), persist (default true).
+        """
+        iface = req.require("interface")
+        vlan = req.body.get("vlan", "__keep__")
+        settings = {
+            "profile": req.choice("profile", gptp_mod.PROFILES),
+            "vlan": None if vlan in ("__keep__", None, "") else int(vlan),
+            "clear_vlan": vlan in (None, ""),
+            "domain": req.integer("domain", lo=0, hi=255),
+            "utc_offset": req.integer("utc_offset", lo=0, hi=100),
+        }
+        return req.ctx.submit_job("ptp.setup", {
+            "interface": iface, "settings": settings,
+            "install": req.body.get("install", True) is not False,
+            "persist": req.body.get("persist", True) is not False})
+
+    @router.get("/api/ptp/settings")
+    def ptp_settings_get(req):
+        """What the next start will use."""
+        g = req.ctx.controller.gptp
+        return {"settings": g.settings(), "running": g.status.get("running"),
+                "profiles": list(gptp_mod.PROFILES), "interfaces":
+                g.get_status().get("interfaces", [])}
+
+    @router.put("/api/ptp/settings")
+    def ptp_settings_set(req):
+        """Change profile, port, VLAN, domain or UTC offset.
+
+        Takes effect at the next start, not immediately: ptp4l reads its
+        configuration once. The response says whether a restart is needed, and
+        the UI offers it, rather than restarting behind the operator's back —
+        a restart drops lock for tens of seconds, and a gate anchored to the
+        clock in that window is anchored to nothing.
+
+        `persist` writes the block to the settings overlay so it survives a
+        daemon restart; without it the change lasts until the daemon stops.
+        """
+        g = req.ctx.controller.gptp
+        body = req.body
+        vlan = body.get("vlan", "__keep__")
+        try:
+            settings = g.configure(
+                profile=req.choice("profile", gptp_mod.PROFILES),
+                interface=req.opt("interface"),
+                vlan=None if vlan in ("__keep__", None, "") else vlan,
+                clear_vlan=vlan in (None, ""),
+                domain=req.integer("domain", lo=0, hi=255),
+                utc_offset=req.integer("utc_offset", lo=0, hi=100),
+                client_only=body.get("client_only"))
+        except ValueError as exc:
+            raise ApiError(400, str(exc)) from None
+        persisted = False
+        if body.get("persist"):
+            cfg = req.ctx.controller.config
+            # The whole block: the overlay replaces a sub-dict rather than
+            # merging into it, so a partial write would drop `enabled`.
+            block = dict(cfg.as_dict().get("ptp") or {})
+            block.update({k: v for k, v in settings.items()})
+            block.setdefault("enabled", g.enabled)
+            cfg.update({"ptp": block})
+            persisted = True
+        running = bool(g.status.get("running"))
+        return {"settings": settings, "persisted": persisted,
+                "restart_needed": running,
+                "note": ("saved; restart PTP to apply" if running
+                         else "saved; applies when PTP starts")}
+
+    @router.get("/api/ptp/status")
+    def ptp_status(req):
+        """Clock state, and whether it is fit to anchor a gate schedule.
+
+        `gate_clock_ok` is the field worth reading before trusting any
+        time-aware measurement: it is false while the servo is unlocked or the
+        kernel TAI offset disagrees with the configured one, either of which
+        leaves a Qbv schedule anchored to something other than real TAI without
+        anything else complaining.
+        """
+        return req.ctx.controller.gptp.get_status()
 
     # -- TAS (DS-TT side, tc taprio) ----------------------------------------
     @router.get("/api/tas/profiles")
