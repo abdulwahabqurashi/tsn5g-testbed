@@ -1,0 +1,13 @@
+[Unit]
+Description=Open5GS-TSN 5G-ACIA core (all network functions + WebUI)
+Documentation=file://@BASEDIR@/docs/_docs/tutorial/09-TSN-5G-ACIA-deployment.md
+Wants=open5gs-tsn-netconf.service
+Wants=open5gs-tsn@nrf.service open5gs-tsn@scp.service open5gs-tsn@ausf.service
+Wants=open5gs-tsn@udm.service open5gs-tsn@udr.service open5gs-tsn@pcf.service
+Wants=open5gs-tsn@nssf.service open5gs-tsn@bsf.service open5gs-tsn@amf.service
+Wants=open5gs-tsn@smf.service open5gs-tsn@upf.service open5gs-tsn@tsn-af.service
+Wants=open5gs-tsn-webui.service
+After=open5gs-tsn-netconf.service
+
+[Install]
+WantedBy=multi-user.target

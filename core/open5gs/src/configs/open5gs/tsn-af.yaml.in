@@ -1,0 +1,70 @@
+logger:
+  file:
+    path: @localstatedir@/log/open5gs/tsn-af.log
+#  level: info   # fatal|error|warn|info(default)|debug|trace
+
+global:
+  max:
+    ue: 1024  # The number of UE can be increased depending on memory size.
+#    peer: 64
+
+tsn-af:
+  sbi:
+    server:
+      - address: 127.0.0.30
+        port: 7777
+    client:
+#      nrf:
+#        - uri: http://127.0.0.10:7777
+      scp:
+        - uri: http://127.0.0.200:7777
+
+################################################################################
+# SBI Server
+################################################################################
+#  o Bind to the address on the eth0 and advertise as open5gs-tsn-af.svc.local
+#  sbi:
+#    server:
+#      - dev:eth0
+#        advertise: open5gs-tsn-af.svc.local
+#
+#  o Specify a custom port number 7777 while binding to the given address
+#  sbi:
+#    server:
+#      - address: tsn-af.localdomain
+#        port: 7777
+#
+################################################################################
+# SBI Client
+################################################################################
+#  o Direct Communication with NRF
+#  sbi:
+#    client:
+#      nrf:
+#        - uri: http://127.0.0.10:7777
+#
+#  o Indirect Communication by Delegating to SCP
+#  sbi:
+#    client:
+#      scp:
+#        - uri: http://127.0.0.200:7777
+#
+################################################################################
+# HTTPS scheme with TLS
+################################################################################
+#  o Set as default if not individually set
+#  default:
+#    tls:
+#      server:
+#        scheme: https
+#        private_key: @sysconfdir@/open5gs/tls/tsn-af.key
+#        cert: @sysconfdir@/open5gs/tls/tsn-af.crt
+#      client:
+#        scheme: https
+#        cacert: @sysconfdir@/open5gs/tls/ca.crt
+#  sbi:
+#    server:
+#      - address: tsn-af.localdomain
+#    client:
+#      nrf:
+#        - uri: https://nrf.localdomain

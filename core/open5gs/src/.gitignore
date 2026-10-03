@@ -1,0 +1,27 @@
+install/
+
+# This directory is fetched during first build and is present in this directory
+subprojects/freeDiameter
+subprojects/libtins
+subprojects/prometheus-client-c
+subprojects/usrsctp
+
+webui/.next
+
+# Local tooling / environment
+.claude/
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+
+# Build artifacts and dependencies
+build/
+node_modules/
+*.log
+
+# Local test screenshots / reports
+Screenshot*.png
+build/reports/
+build/backups/

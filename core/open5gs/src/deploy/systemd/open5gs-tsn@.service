@@ -1,0 +1,22 @@
+[Unit]
+Description=Open5GS-TSN network function: %i
+# %i is the NF name (nrf scp ausf udm udr pcf nssf bsf amf smf upf tsn-af).
+# Binary: build/src/%i/open5gs-%id  Config: build/configs/open5gs/%i.yaml
+After=network-online.target open5gs-tsn-netconf.service mongod.service
+Wants=open5gs-tsn-netconf.service
+PartOf=open5gs-tsn.target
+
+[Service]
+Type=simple
+# NFs need CAP_NET_ADMIN (tun/tap) and bind loopback SBI addresses.
+User=root
+ExecStart=@BASEDIR@/build/src/%i/open5gs-%id -c @BASEDIR@/build/configs/open5gs/%i.yaml
+Restart=on-failure
+RestartSec=2
+# journald captures stdout/stderr; open5gs also file-logs per its yaml.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=open5gs-%i
+
+[Install]
+WantedBy=open5gs-tsn.target

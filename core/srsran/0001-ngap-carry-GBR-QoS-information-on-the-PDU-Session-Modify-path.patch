@@ -1,0 +1,63 @@
+From 078c9389f164fb412cb631fc75fd2c130bc6c1f0 Mon Sep 17 00:00:00 2001
+From: "a.w.qurashi" <a.w.qurashi@sheffield.ac.uk>
+Date: Mon, 28 Sep 2026 13:04:18 +0000
+Subject: [PATCH] ngap: carry GBR QoS information on the PDU Session Modify
+ path
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The PDU Session Resource Setup path converted gBR-QoSInformation into the
+internal structures; the Modify path did not. A PCC rule adding a GBR flow to
+an existing session arrives as a Modify, so gbr_qos_info reached the DU empty.
+
+du_bearer_resource_manager.cpp:207 then fell through to
+make_non_gbr_drb_mac_lc_config(), which takes no arguments and gives every
+non-GBR DRB the same MAC logical channel priority and a fixed PBR of 8 kBps.
+The UE's logical channel prioritisation was therefore handed two identically
+configured logical channels and had nothing to differentiate on - which looked
+exactly like a modem that ignores LCP.
+
+Fix mirrors the Setup path (same file, ~line 326).
+
+Verified on an X410 / Quectel RM520N-GL testbed: with a 25 Mbit/s GBR PCC rule
+the DU now receives guaranteedFlowBitRateUplink 25000000, and the RRC
+masterCellGroup gives DRB 2 priority 4, prioritisedBitRate kBps4096 and its own
+logical channel group, against DRB 1 at priority 5, kBps8, LCG 2. Before the
+fix both DRBs received the identical non-GBR config.
+
+Affects anyone using PCC rules to add GBR flows with srsRAN, independent of
+modem. Worth upstreaming.
+
+🤖 AI-assisted via Claude Code (AMRC)
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0142e2ycU7BSWeKjyd1rLRun
+---
+ lib/ngap/ngap_asn1_helpers.h | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/lib/ngap/ngap_asn1_helpers.h b/lib/ngap/ngap_asn1_helpers.h
+index 03947d0..8b2e68a 100644
+--- a/lib/ngap/ngap_asn1_helpers.h
++++ b/lib/ngap/ngap_asn1_helpers.h
+@@ -619,6 +619,16 @@ inline bool fill_cu_cp_pdu_session_resource_modify_item_base(
+         qos_flow_add_item.qos_flow_level_qos_params.alloc_retention_prio.is_preemptable =
+             asn1_flow_item.qos_flow_level_qos_params.alloc_and_retention_prio.pre_emption_vulnerability.value ==
+             asn1::ngap::pre_emption_vulnerability_opts::pre_emptable;
++
++        // Fill GBR QoS information.
++        // The PDU Session Resource Setup path fills this; the Modify path did not, so a GBR flow added to an
++        // existing session reached the DU with gbr_qos_info empty. du_bearer_resource_manager then falls back to
++        // make_non_gbr_drb_mac_lc_config(), which gives every non-GBR DRB the same MAC LC priority and a fixed
++        // PBR of 8 kBps - leaving the UE's logical channel prioritization nothing to differentiate on.
++        if (asn1_flow_item.qos_flow_level_qos_params.gbr_qos_info_present) {
++          qos_flow_add_item.qos_flow_level_qos_params.gbr_qos_info =
++              ngap_asn1_to_gbr_qos_flow_information(asn1_flow_item.qos_flow_level_qos_params.gbr_qos_info);
++        }
+       }
+ 
+       modify_item.transfer.qos_flow_add_or_modify_request_list.emplace(qos_flow_add_item.qos_flow_id,
+-- 
+2.43.0
+

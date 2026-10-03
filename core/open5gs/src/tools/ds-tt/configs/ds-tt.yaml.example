@@ -1,0 +1,103 @@
+#
+# DS-TT (Device-Side TSN Translator) Configuration
+#
+# This configuration file controls the DS-TT daemon which bridges
+# Ethernet frames between TSN end stations (via TSN NICs) and the
+# 5G network (via Quectel RM520N modem with Ethernet PDU session).
+#
+
+#
+# 5G Modem Configuration (Quectel RM520N-GL)
+#
+modem:
+  # Serial port for AT commands
+  device: /dev/ttyUSB2
+
+  # WWAN network interface name
+  wwan_interface: wwan0
+
+  # Data Network Name for TSN Ethernet PDU session
+  dnn: tsn
+
+  # PDP Context ID
+  cid: 1
+
+  # Enable Ethernet PDU mode (AT+CGDCONT with "Ethernet" type)
+  ethernet_mode: true
+
+  # Serial baud rate
+  baud_rate: 115200
+
+#
+# TSN-capable Network Interfaces
+#
+# List all TSN NICs connected to TSN end stations.
+# These interfaces will be attached to the DS-TT bridge.
+#
+tsn_nics:
+  - interface: enp2s0
+    hw_timestamping: true
+
+  # Add more TSN NICs if needed:
+  # - interface: enp3s0
+  #   hw_timestamping: true
+
+#
+# Linux Kernel Bridge Configuration
+#
+# The DS-TT creates a kernel bridge to forward L2 Ethernet frames
+# between the modem (wwan0) and TSN NICs at wire speed.
+#
+bridge:
+  # Bridge interface name
+  name: ds-tt-br0
+
+  # Spanning Tree Protocol (disable for deterministic forwarding)
+  stp: false
+
+  # 802.1Q VLAN filtering
+  vlan_filtering: true
+
+  # Group forwarding mask:
+  #   0x4000 = bit 14 = forward LLDP frames (01:80:c2:00:00:0e)
+  # Required for TSN topology discovery via LLDP
+  group_fwd_mask: 0x4000
+
+  # MAC ageing time (0 = no ageing, static forwarding)
+  ageing_time: 0
+
+#
+# gPTP / IEEE 802.1AS Configuration
+#
+# DS-TT runs ptp4l as a transparent clock (TC) to support time
+# synchronization between TSN grandmaster and end stations.
+#
+gptp:
+  # Enable gPTP transparent clock
+  enabled: true
+
+  # 802.1AS time domain number
+  time_domain_number: 0
+
+  # transportSpecific field (1 = 802.1AS)
+  transport_specific: 1
+
+  # Priority (255 = never become grandmaster)
+  priority1: 255
+
+#
+# REST API & Web Dashboard
+#
+# DS-TT includes a standalone web dashboard (separate from Open5GS WebUI)
+# for monitoring modem status, bridge state, gPTP sync, and traffic stats.
+#
+api:
+  enabled: true
+  host: 0.0.0.0
+  port: 8080
+
+#
+# Logging
+#
+# Log levels: debug, info, warning, error
+log_level: info

@@ -1,0 +1,151 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+/* ===== AMRC 5G-TSN — UniFi Network design language =====
+ * Full-bleed white canvas, 48px top bar, thin icon rail,
+ * shadow cards (no borders), blue #006FFF accent, gray pill inputs. */
+:root {
+  --bg-primary:      #ffffff;
+  --bg-elevated:     #ffffff;
+  --bg-card:         #ffffff;
+  --bg-input:        #f4f5f7;   /* UniFi gray pill inputs */
+  --bg-panel-header: #fafbfc;
+  --bg-hover:        #f4f6f8;
+  --bg-topbar:       #f7f8fa;
+
+  --text-primary:    #1d2126;
+  --text-secondary:  #50565e;
+  --text-muted:      #85898f;
+
+  --border-color:    #e8eaed;
+  --divider:         #f0f1f3;
+
+  --accent:          #006fff;
+  --accent-2:        #2f8aff;
+  --accent-soft:     rgba(0,111,255,0.08);
+
+  /* chart + status palette (sampled from UniFi Network) */
+  --chart-blue:   #478ff7;
+  --chart-cyan:   #27b8dc;
+  --chart-purple: #9e7be0;
+  --chart-green:  #43c478;
+  --chart-amber:  #f5a524;
+  --chart-red:    #f0383b;
+
+  --ok:   #43c478;
+  --warn: #f5a524;
+  --bad:  #f0383b;
+
+  --port-green: #3dbd7d;
+  --port-lime:  #8cc63f;
+  --port-blue:  #478ff7;
+  --port-gray:  #e4e6ea;
+
+  --shadow-light:  rgba(16,24,40,0.06);
+  --shadow-medium: rgba(16,24,40,0.12);
+
+  --radius: 14px;
+  --card-shadow: 0 1px 3px rgba(16,24,40,0.07), 0 6px 18px rgba(16,24,40,0.05);
+  --font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+body.dark-mode { }   /* single light design; toggle kept for compatibility */
+
+html, body {
+  margin: 0; padding: 0; box-sizing: border-box;
+  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+  font-family: var(--font);
+  font-size: 14px;
+  background: #ffffff !important;
+  color: var(--text-primary);
+}
+* { box-sizing: inherit; }
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+::selection { background: var(--accent-soft); }
+
+/* thin light scrollbars */
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: #d9dce1; border-radius: 8px; }
+*::-webkit-scrollbar-thumb:hover { background: #c3c7cd; }
+
+/* ===== UniFi controls ===== */
+h1, h2, h3, h4 { color: var(--text-primary); font-weight: 700; }
+
+/* tables: bold dark headers, hairline rows, compact */
+th {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  text-align: left;
+}
+td { border-color: var(--divider); font-size: 13px; }
+table { color: var(--text-secondary); border-collapse: collapse; }
+
+/* gray pill inputs (UniFi style: filled, borderless) */
+input, select, textarea {
+  background: var(--bg-input); color: var(--text-primary);
+  border: 1px solid transparent; border-radius: 10px;
+  font-family: var(--font);
+}
+input::placeholder, textarea::placeholder { color: var(--text-muted); }
+input:focus, select:focus, textarea:focus {
+  outline: none; background: #ffffff;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+button { font-family: var(--font); border-radius: 10px; }
+
+/* UniFi legend chip (bordered pill with colored dash) — utility class */
+.uifi-chip {
+  display: inline-flex; align-items: center;
+  background: #ffffff; border: 1px solid var(--border-color);
+  border-radius: 8px; padding: 3px 10px;
+  font-size: 12px; font-weight: 500; color: var(--text-secondary);
+}
+.uifi-chip::before {
+  content: ''; width: 10px; height: 3px; border-radius: 2px;
+  margin-right: 6px; background: var(--chip-color, var(--chart-blue));
+}
+
+/* tag chip (gray, like "Streaming" / zone tags) */
+.uifi-tag {
+  display: inline-block; background: #f0f2f5; border-radius: 6px;
+  padding: 2px 8px; font-size: 12px; color: var(--text-secondary);
+}
+
+/* ===== modal dialogs: readable text, UniFi card ===== */
+#nprogress-base-form { border-radius: 14px; overflow: hidden; }
+#nprogress-base-form,
+#nprogress-base-form legend,
+#nprogress-base-form label,
+#nprogress-base-form .control-label,
+#nprogress-base-form input,
+#nprogress-base-form select,
+#nprogress-base-form textarea {
+  color: #1d2126 !important;
+}
+#nprogress-base-form legend {
+  font-size: 16px; font-weight: 700;
+  border-bottom: 1px solid var(--divider);
+  padding-bottom: 8px; margin-bottom: 16px;
+}
+#nprogress-base-form .field-description,
+.rjsf .field-description, .rjsf p.help-block, .rjsf .help-block {
+  color: #50565e !important; font-size: 12px;
+}
+
+/* subscriber JSON-schema form + bootstrap modals */
+.rjsf input, .rjsf select, .rjsf textarea {
+  background: var(--bg-input) !important; color: var(--text-primary) !important; border-color: transparent !important;
+}
+.rjsf label, .rjsf .control-label { color: var(--text-secondary) !important; }
+.rjsf .panel { background: var(--bg-card) !important; border-color: var(--divider) !important; box-shadow: none !important; }
+.rjsf .panel-heading { background: var(--bg-panel-header) !important; color: var(--text-primary) !important; border-color: var(--divider) !important; }
+.rjsf .panel-body { background: var(--bg-card) !important; }
+.rjsf .btn { border-color: var(--border-color) !important; color: var(--text-primary) !important; }
+.modal-content { background: var(--bg-card) !important; color: var(--text-primary) !important; border: none !important; border-radius: 14px !important; box-shadow: 0 12px 40px rgba(16,24,40,0.18) !important; }
+.modal-header, .modal-footer { border-color: var(--divider) !important; }

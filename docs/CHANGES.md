@@ -6,6 +6,75 @@ back**. Commit hashes are filled in as `git log --oneline` shows them.
 
 ---
 
+## 7 — `install.sh core`: build and run the core and gNB from pinned sources
+
+**What**
+- `core/open5gs/src/` — the TSN/5G-ACIA Open5GS fork. On the first rig it
+  existed only as a zip plus an unpacked tree. Compared with the zip, the C
+  code is unchanged. Local work was in the WebUI (a new **gNB QoS** page:
+  `webui/server/routes/gnb-qos.js`, `webui/src/components/GnbQos`,
+  `webui/src/containers/GnbQos`, plus routing and sidebar edits) and in the
+  config templates. Left out:
+  - build output, `node_modules`, `.next`
+  - `.bak` files
+  - the 3GPP specification PDFs (`3gpp-tsn-docs/`)
+  - meson's downloaded subprojects (re-fetched at their pinned `.wrap`
+    revisions)
+  - `webui/.env`, which holds the WebUI's session secrets; it is regenerated
+    on first start.
+
+  The `*.key` files under `src/configs/open5gs/{hnet,tls}` are upstream's
+  published test keys, identical to the zip. Nothing uses them: the rendered
+  UDM config points at per-site keys that `install.sh core` generates.
+- `core/srsran/0001-…patch` — the GBR-on-Modify fix that was an unpushed
+  local commit (`078c938` on `4bf1543`). Without it the GBR flow never got its
+  guaranteed rate and every DRB looked identical to the modem's LCP.
+- `core/build.sh [all|deps|srsran|open5gs|webui]`:
+  - deps: Ubuntu packages, UHD 4.6 from the archive, MongoDB 7.0 and Node.js
+    20 from their own repositories (the same sources the first rig used);
+  - srsRAN: cloned at `SRSRAN_COMMIT`, patched, Release build with
+    `-march=native`;
+  - Open5GS: meson **debug** buildtype, as the first rig ran it;
+  - WebUI: `npm install`.
+  Each step skips work that is already done.
+- `lib/install-core.sh`, nine steps:
+  1. preflight: NICs present, RT CPU isolation active, NFs started outside
+     systemd
+  2. code to `$PREFIX`
+  3. build
+  4. configs to `/etc/tsn5g` and per-site UDM hnet keys
+  5. sysctl and logrotate
+  6. units
+  7. enable at boot
+  8. start, in order: core, then subscriber, then gNB
+  9. checks: 12 NFs, NRF, NGAP
+
+  `SKIP_BUILD=1` re-renders configs without rebuilding.
+
+**Why** — rebuilding the first rig's core by hand meant knowing which zip,
+which srsRAN commit plus which uncommitted patch, which build options, and
+which apt repositories. Now that knowledge is in one script.
+
+**Deploy** — on a new core (Ubuntu 24.04, X410 cabled, see DEPLOY.md):
+```bash
+cp site.env.example site.env && nano site.env
+cp secrets.env.example secrets.env && chmod 600 secrets.env && nano secrets.env
+sudo core/scripts/rt-grub.sh && sudo reboot        # once: real-time kernel parameters
+sudo ./install.sh core                             # ~30-60 min, mostly the srsRAN build
+```
+
+**Verify**
+```bash
+/opt/tsn5g/core/scripts/open5gs-ctl.sh status       # 12 NFs, webui, gnb active
+sleep 120; /opt/tsn5g/core/scripts/tsn_health.sh    # all PASS
+```
+
+**Roll back** — `sudo systemctl disable --now open5gs.target open5gs-webui
+srsran-gnb tsn5g-core-net tsn-health.timer`. The build tree is in
+`$PREFIX/build` and can simply be deleted.
+
+---
+
 ## 6 — Core scripts and systemd units: the core starts at boot, NAT persists
 
 **What**

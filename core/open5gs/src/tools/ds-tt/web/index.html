@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DS-TT Dashboard</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <h1>DS-TT Dashboard</h1>
+            <span class="subtitle">Device-Side TSN Translator</span>
+            <div class="health-indicator" id="health-badge">
+                <span class="dot"></span>
+                <span class="label">Connecting...</span>
+            </div>
+        </div>
+    </header>
+
+    <nav>
+        <button class="nav-btn active" data-panel="overview">Overview</button>
+        <button class="nav-btn" data-panel="modem">Modem</button>
+        <button class="nav-btn" data-panel="bridge">Bridge</button>
+        <button class="nav-btn" data-panel="gptp">gPTP</button>
+        <button class="nav-btn" data-panel="stats">Traffic Stats</button>
+    </nav>
+
+    <main>
+        <!-- Overview Panel -->
+        <section id="panel-overview" class="panel active">
+            <div class="card-grid">
+                <div class="card" id="card-modem">
+                    <h3>5G Modem</h3>
+                    <div class="card-body">
+                        <div class="status-row">
+                            <span class="label">Registration</span>
+                            <span class="value" id="ov-modem-reg">--</span>
+                        </div>
+                        <div class="status-row">
+                            <span class="label">PDU Session</span>
+                            <span class="value" id="ov-modem-pdu">--</span>
+                        </div>
+                        <div class="status-row">
+                            <span class="label">MAC Address</span>
+                            <span class="value mono" id="ov-modem-mac">--</span>
+                        </div>
+                        <div class="status-row">
+                            <span class="label">Signal (RSRP)</span>
+                            <span class="value" id="ov-modem-rsrp">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card" id="card-bridge">
+                    <h3>Bridge</h3>
+                    <div class="card-body">
+                        <div class="status-row">
+                            <span class="label">Name</span>
+                            <span class="value mono" id="ov-bridge-name">--</span>
+                        </div>
+                        <div class="status-row">
+                            <span class="label">Status</span>
+                            <span class="value" id="ov-bridge-status">--</span>
+                        </div>
+                        <div class="status-row">
+                            <span class="label">Interfaces</span>
+                            <span class="value" id="ov-bridge-ifaces">--</span>
+                        </div>
+                        <div class="status-row">
+                            <span class="label">VLAN Filtering</span>
+                            <span class="value" id="ov-bridge-vlan">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card" id="card-gptp">
+                    <h3>gPTP (802.1AS)</h3>
+                    <div class="card-body">
+                        <div class="status-row">
+                            <span class="label">Status</span>
+                            <span class="value" id="ov-gptp-status">--</span>
+                        </div>
+                        <div class="status-row">
+                            <span class="label">ptp4l</span>
+                            <span class="value" id="ov-gptp-ptp4l">--</span>
+                        </div>
+                        <div class="status-row">
+                            <span class="label">Clock Offset</span>
+                            <span class="value" id="ov-gptp-offset">--</span>
+                        </div>
+                        <div class="status-row">
+                            <span class="label">Path Delay</span>
+                            <span class="value" id="ov-gptp-delay">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card" id="card-health">
+                    <h3>System Health</h3>
+                    <div class="card-body">
+                        <div class="status-row">
+                            <span class="label">State</span>
+                            <span class="value" id="ov-health-state">--</span>
+                        </div>
+                        <div class="status-row">
+                            <span class="label">Uptime</span>
+                            <span class="value" id="ov-health-uptime">--</span>
+                        </div>
+                        <div class="status-row">
+                            <span class="label">Modem</span>
+                            <span class="value" id="ov-health-modem">--</span>
+                        </div>
+                        <div class="status-row">
+                            <span class="label">Bridge</span>
+                            <span class="value" id="ov-health-bridge">--</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Modem Panel -->
+        <section id="panel-modem" class="panel">
+            <div class="card wide">
+                <h3>Modem Details</h3>
+                <div class="card-body">
+                    <table class="detail-table" id="modem-detail-table">
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="card wide">
+                <h3>Signal Quality</h3>
+                <div class="card-body">
+                    <div class="signal-bars" id="signal-bars">
+                        <div class="bar-group">
+                            <div class="bar-label">RSRP</div>
+                            <div class="bar-track"><div class="bar-fill" id="bar-rsrp"></div></div>
+                            <div class="bar-value" id="val-rsrp">-- dBm</div>
+                        </div>
+                        <div class="bar-group">
+                            <div class="bar-label">RSRQ</div>
+                            <div class="bar-track"><div class="bar-fill" id="bar-rsrq"></div></div>
+                            <div class="bar-value" id="val-rsrq">-- dB</div>
+                        </div>
+                        <div class="bar-group">
+                            <div class="bar-label">SINR</div>
+                            <div class="bar-track"><div class="bar-fill" id="bar-sinr"></div></div>
+                            <div class="bar-value" id="val-sinr">-- dB</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Bridge Panel -->
+        <section id="panel-bridge" class="panel">
+            <div class="card wide">
+                <h3>Bridge Configuration</h3>
+                <div class="card-body">
+                    <table class="detail-table" id="bridge-detail-table">
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="card wide">
+                <h3>Interface MAC Addresses</h3>
+                <div class="card-body">
+                    <table class="detail-table" id="bridge-mac-table">
+                        <thead><tr><th>Interface</th><th>MAC Address</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="card wide">
+                <h3>FDB Entries</h3>
+                <div class="card-body">
+                    <pre id="bridge-fdb" class="log-output"></pre>
+                </div>
+            </div>
+        </section>
+
+        <!-- gPTP Panel -->
+        <section id="panel-gptp" class="panel">
+            <div class="card wide">
+                <h3>gPTP Configuration</h3>
+                <div class="card-body">
+                    <table class="detail-table" id="gptp-detail-table">
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="card wide">
+                <h3>Clock Synchronization</h3>
+                <div class="card-body">
+                    <table class="detail-table" id="gptp-clock-table">
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Stats Panel -->
+        <section id="panel-stats" class="panel">
+            <div class="card wide">
+                <h3>Traffic Statistics</h3>
+                <div class="card-body">
+                    <div class="stats-uptime">
+                        Uptime: <span id="stats-uptime">--</span>s
+                    </div>
+                    <div id="stats-container"></div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <span>DS-TT v0.1.0</span>
+        <span class="separator">|</span>
+        <span>Auto-refresh: <span id="refresh-interval">2</span>s</span>
+        <span class="separator">|</span>
+        <span>Last update: <span id="last-update">--</span></span>
+    </footer>
+
+    <script src="js/app.js"></script>
+</body>
+</html>

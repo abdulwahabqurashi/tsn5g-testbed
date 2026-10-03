@@ -1,0 +1,25 @@
+[Unit]
+Description=Open5GS-TSN AMRC WebUI
+After=network-online.target mongod.service
+Wants=mongod.service
+PartOf=open5gs-tsn.target
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@BASEDIR@/webui
+# Bind to the management address so it is reachable on the LAN.
+Environment=HOSTNAME=@WEBUI_ADDR@
+# ensure-secret (prestart) + the custom Express+Next server (server/index.js).
+# Uses Next dev middleware (no separate build step); for a hardened prod
+# build run `npm run build` and set NODE_ENV=production here.
+ExecStartPre=@NODE@ @BASEDIR@/webui/server/ensure-secret.js
+ExecStart=@NODE@ @BASEDIR@/webui/server/index.js
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=open5gs-webui
+
+[Install]
+WantedBy=open5gs-tsn.target

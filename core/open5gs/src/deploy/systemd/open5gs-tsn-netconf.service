@@ -1,0 +1,21 @@
+[Unit]
+Description=Open5GS-TSN network setup (ogstun + ogstap)
+Documentation=file://@BASEDIR@/docs/_docs/tutorial/09-TSN-5G-ACIA-deployment.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# ogstun for IP PDU sessions
+ExecStart=/bin/sh -c 'ip link show ogstun >/dev/null 2>&1 || (ip tuntap add name ogstun mode tun && ip addr add 10.45.0.1/16 dev ogstun && ip addr add 2001:db8:cafe::1/48 dev ogstun)'
+ExecStart=/sbin/ip link set ogstun up
+# ogstap for Ethernet (L2) PDU sessions
+ExecStart=/bin/sh -c 'ip link show ogstap >/dev/null 2>&1 || ip tuntap add name ogstap mode tap'
+ExecStart=/sbin/ip link set ogstap up
+# best-effort teardown on stop (ignore failures)
+ExecStop=-/sbin/ip link del ogstap
+ExecStop=-/sbin/ip link del ogstun
+
+[Install]
+WantedBy=open5gs-tsn.target
