@@ -27,12 +27,20 @@ logger = logging.getLogger("tsn5g-ue.rig")
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS = os.path.join(REPO, "scripts")
 
+# Site values. These defaults are the first rig's; configure() replaces them
+# from the daemon config's `rig:` section, which install.sh renders from
+# site.env — so nothing here needs editing for a new site.
 NS = "cam2"
 NS_NIC = "enp7s0"
 VETH_ROOT = "veth-cam2"
+VETH_NET = "10.200.2.0/30"
 BEARER = "wwan0"
 CORE_IP = "10.45.0.1"
 DISPLAY = ":99"
+VNC_PORT = 5900
+DESKTOP_USER = "amrc"
+UE_LAN_IP = ""
+GBR_SOURCE_PORT = 5202
 ENCODER_CONFIGS = ("camera1-protected", "camera2-besteffort")
 
 UNIT_NETNS = "tsn5g-cam2-netns.service"
@@ -43,6 +51,30 @@ UNITS = (UNIT_NETNS, UNIT_DISPLAY, UNIT_CAMERAS)
 
 class RigError(RuntimeError):
     pass
+
+
+def configure(cfg):
+    """Take site values from the daemon config's `rig:` section."""
+    global NS, NS_NIC, VETH_ROOT, VETH_NET, BEARER, CORE_IP, DISPLAY, VNC_PORT
+    global DESKTOP_USER, UE_LAN_IP, GBR_SOURCE_PORT
+    cfg = cfg or {}
+    NS = cfg.get("netns", NS)
+    NS_NIC = cfg.get("netns_nic", NS_NIC)
+    VETH_ROOT = cfg.get("veth_root", VETH_ROOT)
+    VETH_NET = cfg.get("veth_net", VETH_NET)
+    BEARER = cfg.get("bearer", BEARER)
+    CORE_IP = cfg.get("core_ip", CORE_IP)
+    DISPLAY = str(cfg.get("display", DISPLAY))
+    VNC_PORT = int(cfg.get("vnc_port", VNC_PORT))
+    DESKTOP_USER = cfg.get("desktop_user", DESKTOP_USER)
+    UE_LAN_IP = cfg.get("ue_lan_ip", UE_LAN_IP)
+    GBR_SOURCE_PORT = int(cfg.get("gbr_source_port", GBR_SOURCE_PORT))
+
+
+def vnc_hint():
+    host = UE_LAN_IP or "<ue-address>"
+    return (f"ssh -L 5901:localhost:{VNC_PORT} {DESKTOP_USER}@{host}, "
+            f"then VNC to localhost::5901")
 
 
 def _ok(cmd, timeout=10):
@@ -123,7 +155,7 @@ def netns_status():
     nic_inside = exists and _ok(["ip", "-n", NS, "link", "show", NS_NIC])
     leak_guard = _ok(["iptables", "-C", "FORWARD", "-i", VETH_ROOT, "!", "-o",
                       BEARER, "-j", "DROP"])
-    masq = _ok(["iptables", "-t", "nat", "-C", "POSTROUTING", "-s", "10.200.2.0/30",
+    masq = _ok(["iptables", "-t", "nat", "-C", "POSTROUTING", "-s", VETH_NET,
                 "-o", BEARER, "-j", "MASQUERADE"])
     reach = nic_inside and _ok(["ip", "netns", "exec", NS, "ping", "-c1", "-W2",
                                 CORE_IP], timeout=5)
@@ -176,9 +208,10 @@ def encoders_status():
 def press_start(log, expect=2, bearer=None):
     """Click Start in the encoder windows, then confirm video flows.
 
-    Runs as the screen's owner: :99 is amrc's Xvfb, and the daemon is root.
+    Runs as the screen's owner (the desktop user's Xvfb), not as root.
     """
-    stream(["runuser", "-u", "amrc", "--", "env", f"PYTHONPATH={REPO}",
+    stream(["runuser", "-u", DESKTOP_USER, "--", "env", f"PYTHONPATH={REPO}",
+            f"TSN5G_DISPLAY={DISPLAY}",
             "python3", "-m", "tsn5g_ue.encoder_gui", str(expect)], log, timeout=90)
     if bearer is not None:
         import time as _t
@@ -248,8 +281,8 @@ def display_status():
     vnc = _ok(["pgrep", "-f", f"x11vnc .*-display {DISPLAY}"])
     wm = _ok(["pgrep", "-x", "openbox"])
     return {"display": DISPLAY, "screen": sock, "vnc": vnc, "window_manager": wm,
-            "vnc_port": 5900, "ok": sock and vnc,
-            "connect": "ssh -L 5901:localhost:5900 amrc@10.5.4.111, then VNC to localhost::5901"}
+            "vnc_port": VNC_PORT, "ok": sock and vnc,
+            "connect": vnc_hint()}
 
 
 def display_up(log):
@@ -319,9 +352,6 @@ def set_protected(name, camera_entries, bearer, config):
     config.update({"modem": {"egress_classes": new}})
     lanes.flush_conntrack(new)
     return placed
-
-
-GBR_SOURCE_PORT = 5202
 
 
 def set_gbr(name, enabled, camera_entries, bearer, config):
@@ -481,7 +511,7 @@ def checklist(controller, jobs=None):
         None if v_ok else {"label": "Press Start for me", "confirm": None},
         None if v_ok else
         ["If it still shows no video after pressing, open the UE screen in VNC "
-         "(ssh -L 5901:localhost:5900 amrc@10.5.4.111, then TightVNC to localhost::5901) "
+         f"({vnc_hint()}) "
          "and look at the encoder windows for an error."])
 
     # first failing step is the one to do now; later ones wait for it

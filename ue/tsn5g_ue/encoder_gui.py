@@ -16,6 +16,7 @@ this module.
 """
 
 import ctypes
+import os
 import logging
 import re
 import time
@@ -24,7 +25,7 @@ from . import utils
 
 logger = logging.getLogger("tsn5g-ue.encoder_gui")
 
-DISPLAY = ":99"
+DISPLAY = os.environ.get("TSN5G_DISPLAY", ":99")   # set by rig.press_start from site.env
 WINDOW_TITLE = "pathStream1"
 START_X_FRAC = 0.785          # Start button centre, fraction of window width
 START_Y_FROM_BOTTOM = 24      # px above the window's bottom edge

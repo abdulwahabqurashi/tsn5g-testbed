@@ -44,6 +44,10 @@ logger = logging.getLogger("tsn5g-ue.controller")
 class Controller:
     def __init__(self, config: Config, events=None, store=None, audit=None):
         self.config = config
+        # Site values for the camera rig (namespace, display, users, ports),
+        # rendered into the config's `rig:` section from site.env.
+        from . import rig
+        rig.configure(config.as_dict().get("rig"))
         self.state_store = StateStore(config.state_file)
         self.state = C.STATE_INITIALIZING
         self.step = None

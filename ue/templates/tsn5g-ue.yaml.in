@@ -1,0 +1,308 @@
+# Rendered from ue/templates/tsn5g-ue.yaml.in by install.sh — edit the template or site.env, not this file.
+platform: auto
+modem:
+  wwan_interface: ${MODEM_WWAN}
+  qmi_device: ${MODEM_QMI}
+  dnn: ${DNN}
+  cid: 1
+  baud_rate: 115200
+  # The egress queue on wwan0. The Linux default (fq_codel, 10240 packets) is
+  # both far deeper than a gate cycle and deliberately flow-fair, so it cancels
+  # any priority set upstream. Re-applied on every data call, because the
+  # interface loses it when the call is re-established.
+  #   shallow — pfifo, the gate decides and this preserves the decision
+  #   prio    — strict priority at the bottleneck; the control that answers
+  #             "is the gate in the wrong place?"
+  #   limited — HTB, best effort hard-capped and protected free to borrow the
+  #             rest; the control for review item F4, "can the host protect the
+  #             stream whatever the modem does?". Needs be_mbps and link_mbps.
+  #             Mark the protected stream with CLASSIFY --set-class 1:10;
+  #             anything unmarked falls to the capped class, which is the safe
+  #             direction to be wrong in.
+  #   default — leave the system default, for a baseline run with no policy
+  egress_queue:
+    policy: limited
+    # 256, measured rather than chosen. The leaf queues sit under each HTB
+    # class, and video is bursty: one JPEG frame is tens of packets arriving
+    # back to back, so a queue shorter than a frame overflows on every frame.
+    #
+    # With two cameras streaming, 1 Oct:
+    #     32 ->  30% loss,  6.5 Mbit/s
+    #     64 ->  17% loss,  8.5
+    #    128 -> 0.3% loss, 11.3
+    #    256 -> 0.0% loss, 11.4   <- knee; throughput plateaus here
+    #    500 -> 0.0% loss, 11.4   (no gain, more buffer)
+    #
+    # It was 20, which cost 38% of every camera's frames and looked like a
+    # radio problem. 20 is right for GATE work — shallow enough that the gate
+    # still governs what reaches the modem — and wrong for video. Those two
+    # needs genuinely conflict, and the gate has never run; revisit this when
+    # it does rather than assuming one value serves both.
+    limit: 256
+    # Read only by `limited`. link_mbps is the *loaded* median measured on this
+    # rig, not a nominal rate — HTB shapes against the number it is given, so a
+    # nominal ceiling would stop capping under exactly the load it exists for.
+    be_mbps: 30
+    link_mbps: 60
+  # Which stream goes in which lane. Applied with the queue on every data call,
+  # because the two are one policy: lanes with nothing steered into them put
+  # every stream in the default class, which is a single FIFO with extra steps.
+  #
+  # This was hand-typed until 30 Sep and did not survive a reboot. The queue
+  # came back correctly and the protected camera's traffic went entirely into
+  # best effort, with nothing reporting a fault. Hence: config, not commands.
+  #
+  # A stream with no entry falls to the capped lane, which is the safe
+  # direction to be wrong in.
+  # Auto-rate keeps the camera lanes just under the radio's capacity so the
+  # queue (and the priority decision) stays on the UE — the modem does not
+  # apply logical-channel priority (docs/LESSONS.md).
+  autorate:
+    enabled: true
+    target: ${CORE_BEARER_IP}
+    min_mbps: 30
+    max_mbps: 120
+    reserve_mbps: 15
+    delay_hi_ms: 30
+    delay_lo_ms: 12
+  egress_classes:
+    - name: camera1
+      proto: udp
+      dport: ${CAM1_PORT}
+      lane: protected        # -> HTB 1:10
+      masquerade: true       # pathStream1 binds to the camera-side address
+      source_port: ${GBR_SOURCE_PORT}  # rides the GBR bearer: the core's QFI 2 filter matches this SOURCE port
+    - name: camera2
+      proto: udp
+      dport: ${CAM2_PORT}
+      lane: best_effort      # -> HTB 1:20 by the qdisc's own default
+      masquerade: true
+# ---------------------------------------------------------------------------
+# The camera-facing NICs. Both cameras fall back to link-local addressing, and
+# link-local addresses derive from the MAC — so two cameras from one batch land
+# on adjacent addresses inside the same /16. A /16 on two interfaces is one
+# subnet reached two ways: the kernel cannot choose, and Spinnaker refuses
+# outright ("adapter with conflicting IP and subnet address range").
+#
+# The separation is put on the UE side, so neither camera is reconfigured: each
+# interface takes a /24 containing exactly one camera.
+#
+# serial is checked, not assumed. pathStream1 picks its camera by nicid, an
+# index into enumeration order, and that order is not guaranteed across
+# reboots. An index pointing at the other camera would put the wrong stream in
+# the protected lane and report nothing wrong.
+# ---------------------------------------------------------------------------
+cameras:
+  - name: camera1
+    interface: ${CAM1_IF}
+    address: ${CAM1_HOST_ADDR}
+    camera_ip: ${CAM1_IP}
+    serial: "${CAM1_SERIAL}"
+    stream_port: ${CAM1_PORT}        # matches egress_classes -> protected lane
+  - name: camera2
+    interface: ${CAM2_IF}
+    address: ${CAM2_HOST_ADDR}
+    camera_ip: ${CAM2_IP}
+    serial: "${CAM2_SERIAL}"
+    netns: ${CAM2_NETNS}               # scripts/camera2-netns.sh moves the NIC here
+    stream_port: ${CAM2_PORT}        # matches egress_classes -> best effort
+
+transport:
+  mode: vxlan
+vxlan:
+  core_ip: ${CORE_BEARER_IP}
+  mtu: 1350
+  vlan_map:
+  - vlan: 60
+    vni: 60
+    pcp: 7
+    dscp: 46
+    role: control
+  - vlan: 70
+    vni: 70
+    pcp: 4
+    dscp: 34
+    role: hp_video
+  - vlan: 80
+    vni: 80
+    pcp: 0
+    dscp: 0
+    role: be_video
+  ptp:
+    vni: 88
+    dstport: 4792
+bridge:
+  name: ds-tt-br0
+  stp: false
+  vlan_filtering: true
+  group_fwd_mask: 16384
+  ageing_time: 0
+tsn_nics: []
+gptp:
+  enabled: false
+# ---------------------------------------------------------------------------
+# Wired PTP to the grandmaster. Takes precedence over the gptp: block above.
+#
+# The grandmaster is an Ord-Bound clock running the IEEE 1588 default profile
+# over Ethernet, tagged on VLAN 4011, domain 0, clock identity
+# 00:05:80:ff:fe:08:7a:51. That profile choice is not cosmetic: 1588 uses
+# end-to-end delay and multicast 01:1B:19:00:00:00, where 802.1AS uses
+# peer-delay and 01:80:C2:00:00:0E. Point the wrong one at it and ptp4l listens
+# forever without ever erroring.
+#
+# utc_offset is set here because the grandmaster advertises utcOffsetValid =
+# false — a free-running clock usually does. Without it CLOCK_TAI comes out 37 s
+# wrong, which is invisible until a gate schedule is anchored to it.
+#
+# enabled stays false until the cable is in; turning it on before that leaves
+# ptp4l free-running on its own clock, which looks like success.
+# ---------------------------------------------------------------------------
+ptp:
+  enabled: true
+  profile: ${PTP_PROFILE}
+  interface: ${PTP_IF}     # Intel I210, PHC 0 — the port cabled to the GM switch.
+                        # Also carries the untagged site LAN (UE_LAN_IP); the
+                        # two coexist, because PTP rides a tagged VLAN and the
+                        # untagged traffic is untouched by a subinterface.
+  vlan: ${PTP_VLAN}            # null or omit if the switch port is an access port
+  domain: ${PTP_DOMAIN}
+  utc_offset: ${UTC_OFFSET}
+  client_only: true
+tas:
+  # all-open is the no-gating baseline, and a deliberate default: applying a
+  # schedule should be an act, not something that happens because a config key
+  # had a value in it.
+  #
+  # It was urllc-5qi82, whose shortest open window is 150 us. A 1400-byte packet
+  # takes 211 us at the configured uplink, so that window cannot pass one — the
+  # gate would open, nothing would fit, and the result would read as "gating did
+  # not help" rather than "gating was never given time to".
+  #
+  # NOTE: this key resolves against switch.py's registry, which does NOT contain
+  # the video-* profiles — those live in tsnbridge/profiles.py. Two registries,
+  # drifted. Feasible choices here are all-open, ctrl-priority, cycle-3ms and
+  # long-4ms; everything else in that registry is infeasible at this link rate.
+  default_profile: all-open
+# ---------------------------------------------------------------------------
+# Software TSN bridge. Off until the data path is proven — turning it on does
+# nothing by itself; the build has to be triggered from the UI or the API.
+# ---------------------------------------------------------------------------
+tsnbridge:
+  enabled: false
+  underlay: ${MODEM_WWAN}
+  veth_queues: 8
+  # What a gate window is judged against. Measured median uplink on this
+  # rig, from 667 iperf3 samples on 23 Sep: median 53, range 29-96 Mbit/s.
+  # A nominal link rate would pass profiles the radio cannot actually run.
+  uplink_mbps: 53
+  # skb->priority -> traffic class, one entry per 802.1p priority.
+  # 4 is 802.1Q "Video" and is what a priority camera carries; 7 is
+  # Network Control and is what GVCP carries. Both belong in the protected
+  # class. Everything else, Camera 2 included, is best effort.
+  #        PCP: 0  1  2  3  4  5  6  7
+  prio_map: [0, 0, 0, 0, 1, 0, 0, 1]
+  modem_qdisc_limit: 20
+  fold: shared
+  # ---------------------------------------------------------------------
+  # Two class layouts, because which one is correct depends on a question
+  # nobody has answered yet: will the modem bind uplink packets to a dedicated
+  # QoS flow based on their DSCP?
+  #
+  #   per-camera-tunnel  One tunnel per camera, each with its own DSCP. The
+  #                      NETWORK prioritises: DSCP -> QoS flow -> 5QI -> the
+  #                      gNB scheduler. A gate shapes one datapath only, so it
+  #                      cannot arbitrate between the cameras here — it does
+  #                      not need to, because the radio does.
+  #
+  #   shared-tunnel      Both cameras in one tunnel, separated by traffic
+  #                      class. The UE prioritises: the gate holds Camera 2
+  #                      back so Camera 1 keeps the link. One tunnel means one
+  #                      DSCP, so the 5G side cannot tell them apart — this is
+  #                      the shape to use if uplink flow binding does not work.
+  #
+  # Switch with POST /api/bridge/layout {"name": "..."} and rebuild. Both are
+  # kept configured so the answer from the core and RAN decides it, not a
+  # rewrite.
+  #
+  # ANSWERED, 24 Sep: shared-tunnel. per-camera-tunnel rested on two premises
+  # and both are now disproven — Open5GS cannot classify on DSCP (the token is
+  # silently discarded), and a correctly separated flow is not ranked by the
+  # modem anyway. Run F4 then showed the UE can protect a stream on its own,
+  # which is what shared-tunnel assumes. Both layouts stay defined; only the
+  # default moves.
+  # ---------------------------------------------------------------------
+  layout: shared-tunnel
+
+  layouts:
+    per-camera-tunnel:
+      description: >-
+        One tunnel per camera. The network prioritises by 5QI; the core needs a
+        packet filter matching ToS 0x88 mask 0xfc for Camera 1.
+      classes:
+        # Camera 1. AF41 is the standard mark for interactive video.
+        - name: hpvideo
+          vlan: 70
+          vni: 707
+          dstport: 4791
+          identity_map: true
+          dscp: 34
+          gate_ip: 10.70.0.2/24
+        # Camera 2.
+        - name: video
+          vlan: 80
+          vni: 808
+          dstport: 4790
+          identity_map: true
+          dscp: 0
+          gate_ip: 10.80.0.2/24
+
+    shared-tunnel:
+      description: >-
+        Both cameras in one tunnel, split by traffic class. The gate does the
+        work; the 5G side sees one flow. Point both cameras at 10.70.0.x and
+        mark Camera 1 priority 4, Camera 2 priority 0.
+      classes:
+        - name: cameras
+          vlan: 70
+          vni: 707
+          dstport: 4791
+          identity_map: true
+          dscp: 34
+          gate_ip: 10.70.0.2/24
+
+speedtest:
+  # Where iperf runs are written. The existing runs from iperf5g.sh are
+  # here, so history stays continuous.
+  log_dir: /var/lib/tsn5g-ue/iperf_logs
+  server: ${CORE_BEARER_IP}
+  duration: 5
+switch:
+  host: 192.168.1.1
+  user: admin
+  ports: 1-8
+api:
+  enabled: true
+  host: 0.0.0.0
+  port: ${API_PORT}
+state_file: /var/lib/tsn5g-ue/state.json
+log_level: info
+
+# ---------------------------------------------------------------------------
+# The two-camera rig on this UE: camera 2's namespace, the encoders, the
+# virtual screen. Read by tsn5g_ue/rig.py and encoder_gui.py; rendered from
+# site.env by install.sh.
+# ---------------------------------------------------------------------------
+rig:
+  netns: ${CAM2_NETNS}
+  netns_nic: ${CAM2_IF}
+  veth_root: veth-${CAM2_NETNS}
+  veth_net: ${CAM2_VETH_NET}.0/30
+  bearer: ${MODEM_WWAN}
+  core_ip: ${CORE_BEARER_IP}
+  display: ":${DISPLAY_NUM}"
+  vnc_port: ${VNC_PORT}
+  desktop_user: ${UE_USER}
+  ue_lan_ip: ${UE_LAN_IP}
+  encoder_dir: ${PREFIX}/video/encoder/pathStream1
+  gbr_source_port: ${GBR_SOURCE_PORT}
+
