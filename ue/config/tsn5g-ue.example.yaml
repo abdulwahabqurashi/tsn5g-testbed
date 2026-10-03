@@ -1,0 +1,161 @@
+#
+# TSN-5G UE Console — configuration
+#
+# Copy to /etc/tsn5g-ue/tsn5g-ue.yaml (the installer does this) and adjust.
+# Most fields are auto-detected at runtime; the values here are defaults/fallbacks
+# and the seed for the Connect wizard.
+#
+
+# ---------------------------------------------------------------------------
+# Base OS provider. 'auto' detects OpenWRT vs generic Linux at start-up.
+#   auto     -> OpenWRT if /etc/openwrt_release (or uci) is present, else linux
+#   openwrt  -> force UCI / netifd / uqmi / iwinfo / procd
+#   linux    -> force NetworkManager / iproute2 / qmicli / systemd
+# ---------------------------------------------------------------------------
+platform: auto
+
+# ---------------------------------------------------------------------------
+# 5G modem (Quectel RM520N-GL)
+# ---------------------------------------------------------------------------
+modem:
+  # device: /dev/ttyUSB3     # AT serial port. LEAVE COMMENTED OUT: the port
+                             # number moves between boots (seen at ttyUSB2 and
+                             # ttyUSB3 on the same machine on the same day), so
+                             # a pinned value fails after a reboot. The daemon
+                             # probes for it and re-probes if the modem
+                             # re-enumerates.
+  wwan_interface: wwan0      # WWAN data interface
+  qmi_device: /dev/cdc-wdm0  # QMI control device (for qmicli data-format / raw-ip)
+  dnn: internet              # APN / Data Network Name. CHANGE THIS — it must
+                             # match what your 5G core expects. Wrong DNN is the
+                             # single most common reason the data call fails.
+  cid: 1                     # PDP context id
+  baud_rate: 115200
+
+# ---------------------------------------------------------------------------
+# Transport: how L2 traffic crosses the 5G user plane
+#   mode: ethernet  -> native Ethernet PDU session (modem in 802-3 mode)
+#         vxlan     -> VXLAN overlay over an IP PDU session
+# ---------------------------------------------------------------------------
+transport:
+  mode: vxlan                # ethernet | vxlan
+
+# VXLAN overlay settings (used when transport.mode == vxlan)
+vxlan:
+  core_ip: 10.45.0.1         # CHANGE THIS — the address of your 5G core / UPF
+                             # on the UE subnet. Also used as the default iperf
+                             # server and the reachability probe target.
+  mtu: 1450                  # headroom for VXLAN+UDP+IP+outer-Ethernet over a 1500 underlay
+  # Per-traffic-class overlay map. VNI defaults to the VLAN id.
+  # role is a friendly label surfaced in the UI.
+  vlan_map:
+    - { vlan: 60, vni: 60, dstport: 4789, pcp: 7, dscp: 46, role: control  }
+    - { vlan: 70, vni: 70, dstport: 4790, pcp: 4, dscp: 34, role: hp_video }
+    - { vlan: 80, vni: 80, dstport: 4791, pcp: 0, dscp: 0,  role: be_video }
+  ptp:
+    vni: 88
+    dstport: 4792
+
+# ---------------------------------------------------------------------------
+# Local kernel bridge (device-side TSN translator)
+# ---------------------------------------------------------------------------
+bridge:
+  name: ds-tt-br0
+  stp: false
+  vlan_filtering: true
+  group_fwd_mask: 0x4000     # forward LLDP (01:80:c2:00:00:0e) for TSN topology discovery
+  ageing_time: 0             # static forwarding
+
+# Wired TSN NICs to bridge onto the 5G link (auto-detected; confirm in the wizard)
+# Leave empty to let the daemon probe (ethtool -T). List them only to override.
+tsn_nics: []
+#  - interface: enp2s0
+#    hw_timestamping: true
+
+# ---------------------------------------------------------------------------
+# gPTP / IEEE 802.1AS (ptp4l transparent clock + phc2sys)
+# ---------------------------------------------------------------------------
+gptp:
+  enabled: false             # needs a NIC with hardware timestamping AND a
+                             # grandmaster on the wire. Turn on once you have
+                             # both; the Time Sync view shows what was found.
+  time_domain_number: 0
+  transport_specific: 1      # 1 = 802.1AS
+  priority1: 255             # never become grandmaster
+
+# ---------------------------------------------------------------------------
+# DS-TT Time-Aware Shaper (IEEE 802.1Qbv "slotting") applied via `tc taprio`.
+# Reuses the same named presets as the switch so both stay phase-aligned.
+# Applied AFTER gPTP has locked. `interface` defaults to the first hw-timestamp NIC.
+# ---------------------------------------------------------------------------
+tas:
+  default_profile: urllc-5qi82
+
+# ---------------------------------------------------------------------------
+# Wired TSN switch (FS TSN3220) — target for one-click 802.1Qbv presets
+# ---------------------------------------------------------------------------
+switch:
+  host: 192.168.1.1
+  user: admin
+  # password is entered in the UI per-apply and NOT stored here by default
+  ports: "1-8"
+  default_profile: urllc-5qi82
+
+# ---------------------------------------------------------------------------
+# Web UI / control API
+# ---------------------------------------------------------------------------
+api:
+  enabled: true
+  host: 0.0.0.0
+  port: 8080
+
+# ---------------------------------------------------------------------------
+# Software TSN bridge — the UE doing what a managed TSN switch would
+#
+# Off by default. When enabled the UE classifies, gates and tags traffic itself,
+# so no switch hardware is needed between a camera and the modem.
+#
+# The gate lives on a veth because taprio needs one TX queue per traffic class
+# and the modem interface has exactly one. Check yours before enabling:
+#     ls -d /sys/class/net/wwan0/queues/tx-* | wc -l
+# ---------------------------------------------------------------------------
+tsnbridge:
+  enabled: false
+  underlay: wwan0            # the bearer the tunnels ride on
+  # remote_ip: 10.45.0.1     # defaults to vxlan.core_ip
+  veth_queues: 8             # must be >= the number of traffic classes
+  modem_qdisc_limit: 20      # keep the modem from absorbing a whole gate cycle
+
+  # Profiles were written for three classes; a two-class bridge leaves the
+  # middle window belonging to nobody. Who inherits it:
+  #   shared    everyone gets it        (default)
+  #   priority  the top class gets it
+  #   closed    it stays shut, and a third of the cycle is idle
+  fold: shared
+
+  classes:
+    - name: ctrl
+      vlan: 60
+      vni: 606
+      dstport: 4789
+      identity_map: true     # the sender's priority becomes the PCP
+      bridge_ip: 10.60.0.2/24
+    - name: video
+      vlan: 80
+      vni: 808
+      dstport: 4790          # its own port, or the core sees one flow
+      identity_map: true
+      bridge_ip: 10.80.0.2/24
+
+# ---------------------------------------------------------------------------
+# Throughput testing (iperf3)
+# ---------------------------------------------------------------------------
+speedtest:
+  server: 10.45.0.1          # where `iperf3 -s` runs. Defaults to vxlan.core_ip.
+  duration: 10               # seconds per leg
+  log_dir: /var/lib/tsn5g-ue/iperf_logs
+
+# Where the daemon persists last-good state for auto-resume on reboot
+state_file: /var/lib/tsn5g-ue/state.json
+
+log_level: info              # debug | info | warning | error

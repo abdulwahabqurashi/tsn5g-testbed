@@ -1,0 +1,33 @@
+{
+  "modem": {
+    "ok": false,
+    "registered": false,
+    "sim_ready": false,
+    "pdu_active": false,
+    "signal": {
+      "rsrp": null,
+      "rsrq": null,
+      "sinr": null,
+      "rssi": null
+    },
+    "operator": null
+  },
+  "transport": {
+    "ok": false,
+    "mode": null
+  },
+  "gptp": {
+    "ok": false,
+    "running": false,
+    "locked": false,
+    "offset_ns": null
+  },
+  "tas": {
+    "ok": false,
+    "applied": {}
+  },
+  "switch": {
+    "ok": null,
+    "host": "192.168.1.1"
+  }
+}

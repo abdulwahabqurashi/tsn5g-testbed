@@ -1,0 +1,12 @@
+{
+  "state": "idle",
+  "phase": null,
+  "download_mbps": null,
+  "upload_mbps": null,
+  "ping_ms": null,
+  "jitter_ms": null,
+  "progress": 0.0,
+  "samples": [],
+  "server": "10.45.0.1",
+  "error": null
+}

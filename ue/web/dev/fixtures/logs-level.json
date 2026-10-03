@@ -1,0 +1,11 @@
+{
+  "root": "info",
+  "loggers": {},
+  "available": [
+    "debug",
+    "info",
+    "warning",
+    "error",
+    "critical"
+  ]
+}

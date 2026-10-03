@@ -1,0 +1,16 @@
+[Unit]
+Description=TSN-5G UE: virtual screen :99 shared over VNC (localhost:5900)
+Documentation=file:///home/amrc/camera_application/tsn5g-ue-app/scripts/vnc-display.sh
+After=network.target
+
+[Service]
+# A screen that exists whether or not anyone is logged in to the desktop, so
+# the encoders can be started at boot and driven remotely.
+Type=oneshot
+RemainAfterExit=yes
+User=amrc
+ExecStart=/home/amrc/camera_application/tsn5g-ue-app/scripts/vnc-display.sh up
+ExecStop=/home/amrc/camera_application/tsn5g-ue-app/scripts/vnc-display.sh down
+
+[Install]
+WantedBy=multi-user.target

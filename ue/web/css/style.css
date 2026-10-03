@@ -1,0 +1,550 @@
+/*
+ * Component styles. Every colour, radius and shadow comes from css/tokens.css;
+ * there are no literal colours in this file, which is what makes dark mode and
+ * kiosk density work without a second stylesheet.
+ */
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px; -webkit-font-smoothing: antialiased; line-height: 1.45;
+}
+.app { display: grid; grid-template-columns: 236px 1fr; min-height: 100vh; }
+
+/* ---------- Sidebar (light) ---------- */
+.sidebar {
+  background: var(--panel); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; padding: 16px 12px;
+  position: sticky; top: 0; height: 100vh;
+  /* The menu outgrew a short window once Cameras was added: with a fixed
+     height and no overflow it spilled past the panel's background and the
+     last entries could not be reached. Scroll inside the sidebar instead. */
+  overflow-y: auto; overscroll-behavior: contain;
+}
+.sidebar > * { flex-shrink: 0; }
+.brand { display: flex; align-items: center; gap: 11px; padding: 6px 10px 22px; }
+.brand-logo {
+  width: 34px; height: 34px; border-radius: 10px; flex: none;
+  background: linear-gradient(135deg, var(--blue), var(--blue-hover));
+  display: grid; place-items: center; color: var(--panel); font-weight: 800; font-size: 15px;
+  box-shadow: 0 4px 12px rgba(11,116,255,.35);
+}
+.brand-name { font-weight: 700; letter-spacing: .2px; font-size: .95rem; }
+.brand-sub { font-size: .72rem; color: var(--faint); margin-top: 1px; }
+.nav { display: flex; flex-direction: column; gap: 2px; }
+.nav-cap { font-size: .68rem; text-transform: uppercase; letter-spacing: .8px;
+  color: var(--faint); padding: 14px 12px 6px; font-weight: 700; }
+.nav-item {
+  display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+  background: none; border: 0; color: var(--soft); padding: 9px 12px; border-radius: 10px;
+  font-size: .9rem; font-weight: 500; cursor: pointer;
+}
+.nav-item .ic { width: 20px; height: 20px; display: grid; place-items: center;
+  opacity: .9; flex: none; }
+.nav-item .ic svg { width: 18px; height: 18px; }
+.nav-item:hover { background: var(--line-2); color: var(--ink); }
+.nav-item.active { background: var(--blue-soft); color: var(--blue); font-weight: 600; }
+.nav-item.active .ic { color: var(--blue); }
+.sidebar-foot { margin-top: auto; padding: 12px 10px 4px; border-top: 1px solid var(--line); }
+.conn-pill { display: flex; align-items: center; gap: 8px; font-size: .82rem;
+  color: var(--soft); font-weight: 600; }
+.ver { font-size: .7rem; color: var(--faint); margin-top: 6px; }
+
+/* status dots */
+.dot, .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint);
+  flex: none; display: inline-block; }
+.is-ok .dot, .dot.ok, .status-dot.ok { background: var(--green);
+  box-shadow: 0 0 0 3px rgba(22,179,100,.16); }
+.is-warn .dot, .dot.warn { background: var(--amber); box-shadow: 0 0 0 3px rgba(245,158,11,.16); }
+.is-err .dot, .dot.err { background: var(--red); box-shadow: 0 0 0 3px rgba(239,68,68,.16); }
+.is-idle .dot, .dot.idle { background: var(--faint); }
+
+/* ---------- Main ---------- */
+.main { display: flex; flex-direction: column; min-width: 0; }
+.topbar {
+  display: flex; align-items: center; gap: 16px; padding: 14px 26px;
+  border-bottom: 1px solid var(--line); background: var(--panel);
+  backdrop-filter: saturate(1.4) blur(6px); position: sticky; top: 0; z-index: 6;
+}
+.topbar h1 { font-size: 1.12rem; margin: 0; font-weight: 700; }
+.search { flex: 1; max-width: 420px; margin: 0 auto; position: relative; }
+.search input {
+  width: 100%; padding: 8px 12px 8px 34px; border: 1px solid var(--line);
+  border-radius: 20px; background: var(--bg); font-size: .86rem; color: var(--ink);
+}
+.search input:focus { outline: none; border-color: var(--blue); background: var(--panel); }
+.search .mag { position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  color: var(--faint); font-size: .9rem; }
+.topbar-right { display: flex; align-items: center; gap: 14px; }
+.health-badge { display: flex; align-items: center; gap: 8px; font-size: .84rem;
+  color: var(--soft); font-weight: 600; background: var(--bg); padding: 6px 13px;
+  border-radius: 20px; border: 1px solid var(--line); }
+.content { padding: 22px 26px 40px; }
+
+/* demo toggle */
+.switch { display: inline-flex; align-items: center; gap: 8px; font-size: .8rem;
+  color: var(--soft); cursor: pointer; user-select: none; }
+.switch input { display: none; }
+.switch .track { width: 36px; height: 20px; border-radius: 20px; background: var(--line-strong);
+  position: relative; transition: background .15s; }
+.switch .track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px;
+  height: 16px; border-radius: 50%; background: var(--panel); box-shadow: 0 1px 3px rgba(0,0,0,.2);
+  transition: transform .15s; }
+.switch input:checked + .track { background: var(--blue); }
+.switch input:checked + .track::after { transform: translateX(16px); }
+
+/* ---------- Cards / grid ---------- */
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(12, 1fr); }
+.card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 18px 20px; grid-column: span 4; min-width: 0;
+}
+.card.col6 { grid-column: span 6; }
+.card.col8 { grid-column: span 8; }
+.card.col12 { grid-column: span 12; }
+.card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.card h3 { margin: 0; font-size: .78rem; text-transform: uppercase; letter-spacing: .6px;
+  color: var(--soft); font-weight: 700; }
+.card .hint { color: var(--faint); font-size: .8rem; font-weight: 500; }
+
+/* stat rows */
+.row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0;
+  border-bottom: 1px solid var(--line-2); font-size: .88rem; }
+.row:last-child { border-bottom: 0; }
+.row .k { color: var(--soft); }
+.row .v { font-weight: 600; }
+.mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: .82rem; }
+
+/* hero stat */
+.stat-hero { display: flex; align-items: baseline; gap: 8px; }
+.stat-hero .num { font-size: 2.6rem; font-weight: 700; letter-spacing: -1px; line-height: 1; }
+.stat-hero .unit { color: var(--faint); font-size: .95rem; font-weight: 600; }
+.stat-sub { color: var(--soft); font-size: .82rem; margin-top: 4px; }
+.big-state { font-size: 1.5rem; font-weight: 700; }
+
+/* KPI mini cards */
+/* Four fixed columns crushed their contents in any card narrower than the
+   full width — selects truncated to "hpvid", labels wrapped onto two lines
+   and pushed their control out of line with its neighbours. Sizing to
+   content and wrapping costs nothing on a wide card and stops the narrow
+   ones lying about what they contain. */
+.kpis { display: grid; gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.kpi { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.kpi .kpi-label { font-size: .72rem; color: var(--soft); text-transform: uppercase;
+  letter-spacing: .5px; font-weight: 700; }
+.kpi .kpi-val { font-size: 1.35rem; font-weight: 700; margin-top: 4px; }
+.kpi .kpi-val small { font-size: .7rem; color: var(--faint); font-weight: 600; }
+
+/* badges / tags */
+.badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px;
+  border-radius: 20px; font-size: .74rem; font-weight: 700; }
+.badge.green { background: var(--green-soft); color: var(--green-ink); }
+.badge.amber { background: var(--amber-soft); color: var(--amber-ink); }
+.badge.red { background: var(--red-soft); color: var(--red-ink); }
+.badge.blue { background: var(--blue-soft); color: var(--blue); }
+.badge.gray { background: var(--line-2); color: var(--soft); }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: .74rem;
+  font-weight: 700; background: var(--line-2); color: var(--soft); }
+
+/* ---------- Buttons ---------- */
+.btn { border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+  padding: 9px 16px; border-radius: 10px; font-size: .88rem; cursor: pointer; font-weight: 600; }
+.btn:hover { border-color: var(--line-strong); background: var(--panel-2); }
+.btn.primary { background: var(--blue); border-color: var(--blue); color: var(--panel); }
+.btn.primary:hover { background: var(--blue-hover); }
+.btn.danger { background: var(--panel); border-color: var(--red-line); color: var(--red); }
+.btn.danger:hover { background: var(--red-soft); }
+.btn.ghost { border: 0; background: none; font-size: 1.05rem; padding: 6px 9px; color: var(--soft); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn-row { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+
+/* forms */
+label.fld { display: block; margin: 12px 0; font-size: .82rem; color: var(--soft); font-weight: 600; }
+label.fld input, label.fld select, textarea {
+  display: block; width: 100%; margin-top: 6px; padding: 9px 12px; font-size: .9rem;
+  border: 1px solid var(--line); border-radius: 9px; background: var(--panel); color: var(--ink);
+  font-family: inherit; }
+label.fld input:focus, label.fld select:focus, textarea:focus { outline: none; border-color: var(--blue); }
+
+/* segmented control */
+.seg { display: inline-flex; background: var(--bg); border: 1px solid var(--line);
+  border-radius: 10px; padding: 3px; gap: 3px; }
+.seg button { border: 0; background: none; padding: 6px 14px; border-radius: 8px;
+  font-size: .82rem; font-weight: 600; color: var(--soft); cursor: pointer; }
+.seg button.on { background: var(--panel); color: var(--blue); box-shadow: var(--shadow); }
+
+/* ---------- Charts ---------- */
+.chart { display: block; width: 100%; }
+.chart-legend, .legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: .78rem;
+  color: var(--soft); font-weight: 600; }
+.legend-item i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+.meter { height: 7px; background: var(--line); border-radius: 6px; overflow: hidden; width: 100%; }
+.meter-fill { height: 100%; border-radius: 6px; }
+.gauge-wrap { display: flex; align-items: center; gap: 16px; }
+
+/* signal bars */
+.bars { display: grid; gap: 12px; }
+.bar-row { display: grid; grid-template-columns: 50px 1fr 78px; align-items: center; gap: 10px; }
+.bar-row .lab { color: var(--soft); font-weight: 600; font-size: .8rem; }
+.bar-row .val { text-align: right; font-weight: 700; font-size: .82rem; }
+
+/* ---------- Tables ---------- */
+table.tbl { width: 100%; border-collapse: collapse; font-size: .86rem; }
+table.tbl th { text-align: left; color: var(--faint); font-weight: 700; padding: 9px 12px;
+  border-bottom: 1px solid var(--line); font-size: .7rem; text-transform: uppercase;
+  letter-spacing: .5px; white-space: nowrap; }
+table.tbl td { padding: 11px 12px; border-bottom: 1px solid var(--line-2); vertical-align: middle; }
+table.tbl tr:last-child td { border-bottom: 0; }
+table.tbl tr:hover td { background: var(--panel-2); }
+.cell-name { display: flex; align-items: center; gap: 9px; font-weight: 600; }
+.cell-icon { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center;
+  color: var(--panel); font-size: .7rem; font-weight: 800; flex: none; }
+
+/* ---------- Topology ---------- */
+.topo { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding: 6px 2px 4px; }
+.topo-node { min-width: 132px; background: var(--bg); border: 1px solid var(--line);
+  border-radius: 12px; padding: 14px 12px; text-align: center; flex: none; }
+.topo-node .tn-ic { width: 40px; height: 40px; border-radius: 11px; margin: 0 auto 8px;
+  display: grid; place-items: center; background: var(--panel); border: 1px solid var(--line);
+  color: var(--blue); }
+.topo-node.ue .tn-ic { background: var(--blue); color: var(--panel); border-color: var(--blue); }
+.topo-node .tn-name { font-weight: 700; font-size: .84rem; }
+.topo-node .tn-sub { color: var(--faint); font-size: .72rem; margin-top: 2px; }
+.topo-link { flex: 1; min-width: 90px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; padding: 0 6px; position: relative; }
+.topo-link .tl-line { width: 100%; height: 2px; background: linear-gradient(90deg,var(--line-strong),var(--line-strong));
+  position: relative; }
+.topo-link.wireless .tl-line { background: repeating-linear-gradient(90deg, var(--blue) 0 6px, transparent 6px 12px); }
+.topo-link .tl-q { font-size: .72rem; font-weight: 700; margin-bottom: 4px; }
+.topo-link .tl-lbl { font-size: .68rem; color: var(--faint); margin-top: 4px; }
+
+/* ---------- Stepper ----------------------------------------------------
+   A run is a sequence, so it is drawn as one: a rail down the bullets, the
+   completed part of it coloured, and exactly one step carrying the eye.
+   The state classes here must match STEP_CLASS in views/connection.js — they
+   did not, so every step rendered grey whatever had happened to it. */
+
+.run-head { display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; margin-bottom: 8px; }
+.run-state { font-weight: 700; font-size: 1rem; }
+.run-state.active { color: var(--blue); }
+.run-state.done   { color: var(--green); }
+.run-state.err    { color: var(--red); }
+.run-count { color: var(--faint); font-size: .8rem; font-variant-numeric: tabular-nums; }
+
+.run-bar { height: 4px; border-radius: 999px; background: var(--line);
+  overflow: hidden; margin-bottom: 14px; }
+.run-bar > i { display: block; height: 100%; border-radius: 999px;
+  background: var(--blue); transition: width .35s ease; }
+.run-bar.done > i { background: var(--green); }
+.run-bar.err  > i { background: var(--red); }
+
+.stepper { display: flex; flex-direction: column; list-style: none;
+  margin: 0; padding: 0; }
+.step { display: grid; grid-template-columns: 26px 1fr auto;
+  align-items: start; gap: 12px; padding: 9px 2px; font-size: .9rem;
+  position: relative; }
+
+/* The rail. Drawn from each bullet to the next, so the last step has none. */
+.step::before { content: ""; position: absolute; left: 12px; top: 32px;
+  bottom: -9px; width: 2px; background: var(--line); }
+.step:last-child::before { display: none; }
+.step.done::before { background: var(--green); }
+
+.step .bullet { width: 26px; height: 26px; border-radius: 50%;
+  border: 2px solid var(--line); display: grid; place-items: center;
+  font-size: .72rem; color: var(--faint); font-weight: 700;
+  background: var(--panel); position: relative; z-index: 1; }
+
+.step-body { min-width: 0; }
+.step-name { font-weight: 600; }
+.step .hint { margin-top: 1px; }
+.step-time { color: var(--faint); font-size: .76rem;
+  font-variant-numeric: tabular-nums; padding-top: 4px; }
+
+.step.done .bullet { background: var(--green); border-color: var(--green);
+  color: #fff; }
+.step.done .step-name { color: var(--ink); }
+
+.step.err .bullet { background: var(--red); border-color: var(--red); color: #fff; }
+.step.err .step-name { color: var(--red); }
+
+.step.pending .bullet { background: var(--panel); }
+.step.pending .step-name, .step.pending .hint { opacity: .55; }
+
+/* The running step is the one the operator is waiting on, so it is the only
+   thing moving on the page. */
+.step.active .bullet { border-color: var(--blue); background: var(--blue); color: #fff; }
+.step.active .step-name { color: var(--blue); font-weight: 700; }
+.step.active .bullet::after { content: ""; position: absolute; inset: -5px;
+  border-radius: 50%; border: 2px solid var(--blue); opacity: .55;
+  animation: step-pulse 1.4s ease-out infinite; }
+
+@keyframes step-pulse {
+  0%   { transform: scale(.85); opacity: .6; }
+  70%  { transform: scale(1.35); opacity: 0; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
+
+/* Respect a reduced-motion preference: the colour already carries the state,
+   the animation only draws the eye to it. */
+@media (prefers-reduced-motion: reduce) {
+  .step.active .bullet::after { animation: none; opacity: .45; }
+  .run-bar > i { transition: none; }
+}
+
+:root[data-density="kiosk"] .step { padding: 13px 2px; font-size: .95rem; }
+:root[data-density="kiosk"] .step::before { top: 36px; }
+
+/* ---------- Guided setup timeline ---------- */
+.setup-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+.setup-head .btn-row { margin-top: 0; }
+.timeline { position: relative; }
+.tl-item { display: grid; grid-template-columns: 40px 1fr; gap: 16px; }
+.tl-gutter { display: flex; flex-direction: column; align-items: center; }
+.tl-node { width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--line);
+  background: var(--panel); display: grid; place-items: center; font-weight: 700; color: var(--soft);
+  z-index: 1; flex: none; font-size: .9rem; }
+.tl-item.done .tl-node { background: var(--green); border-color: var(--green); color: var(--panel); }
+.tl-item.active .tl-node { border-color: var(--blue); color: var(--blue);
+  box-shadow: 0 0 0 4px var(--blue-soft); }
+.tl-item.err .tl-node { background: var(--red); border-color: var(--red); color: var(--panel); }
+.tl-line { flex: 1; width: 2px; background: var(--line); margin: 3px 0; min-height: 12px; }
+.tl-item:last-child .tl-line { display: none; }
+.tl-card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: var(--shadow); padding: 16px 18px; margin-bottom: 16px; }
+.tl-item.locked .tl-card { opacity: .55; }
+.tl-item.active .tl-card { border-color: var(--blue-soft); }
+.tl-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.tl-title { font-weight: 700; font-size: 1rem; }
+.tl-desc { color: var(--soft); font-size: .85rem; margin: 4px 0 0; }
+.tl-body { margin-top: 14px; }
+.tl-result { margin-top: 14px; background: var(--bg); border: 1px solid var(--line);
+  border-radius: 10px; padding: 12px 14px; }
+
+/* choice cards */
+.choice-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.choice { border: 2px solid var(--line); border-radius: 12px; padding: 16px; cursor: pointer;
+  background: var(--panel); transition: border-color .12s, background .12s; }
+.choice:hover { border-color: var(--line-strong); }
+.choice.sel { border-color: var(--blue); background: var(--blue-soft); }
+.choice h4 { margin: 0 0 4px; font-size: .95rem; }
+.choice p { margin: 0; color: var(--soft); font-size: .82rem; }
+.choice .pill-ico { font-size: 1.3rem; margin-bottom: 8px; }
+
+/* preset radio cards */
+.preset { display: flex; align-items: center; gap: 12px; border: 1px solid var(--line);
+  border-radius: 11px; padding: 12px 14px; cursor: pointer; margin-bottom: 8px; }
+.preset:hover { border-color: var(--line-strong); }
+.preset.sel { border-color: var(--blue); background: var(--blue-soft); }
+.preset input { accent-color: var(--blue); }
+.preset .p-name { font-weight: 700; }
+.preset .p-desc { color: var(--soft); font-size: .78rem; }
+
+/* ---------- Speed test (WiFiman-style) ---------- */
+.speed-hero { text-align: center; padding: 26px 20px 20px; }
+.speed-phase { font-size: .85rem; font-weight: 700; letter-spacing: .4px; color: var(--blue);
+  text-transform: uppercase; }
+.speed-num { display: flex; align-items: baseline; justify-content: center; gap: 10px; margin: 6px 0 2px; }
+.speed-num span:first-child { font-size: 4.4rem; font-weight: 700; letter-spacing: -2px; line-height: 1;
+  font-variant-numeric: tabular-nums; }
+.speed-unit { font-size: 1.1rem; color: var(--faint); font-weight: 600; }
+.speed-sub { color: var(--soft); font-size: .85rem; }
+.speed-chart { margin: 14px 0 6px; }
+
+/* ---------- Wi-Fi list ---------- */
+.wifi-list { display: flex; flex-direction: column; gap: 6px; }
+.wifi-item { display: flex; align-items: center; gap: 12px; padding: 10px 8px;
+  border-bottom: 1px solid var(--line-2); }
+.wifi-item:last-child { border-bottom: 0; }
+.wifi-ic { width: 30px; height: 30px; display: grid; place-items: center; color: var(--blue); flex: none; }
+.wifi-ssid { font-weight: 600; display: flex; align-items: center; }
+.wifi-meta { color: var(--faint); font-size: .76rem; }
+.wifi-sig { display: grid; place-items: center; }
+
+/* ---------- Qbv editor / PCP table ---------- */
+.qbv-editor { margin-top: 4px; }
+.qbv-tbl th, .qbv-tbl td { padding: 7px 8px; }
+.qbv-int { width: 92px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 7px;
+  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .82rem; }
+.qbv-tbl input[type="checkbox"] { accent-color: var(--blue); width: 16px; height: 16px; }
+.qbv-preview { margin-top: 12px; }
+.seg-b { border: 0; background: none; padding: 6px 14px; border-radius: 8px; font-size: .82rem;
+  font-weight: 600; color: var(--soft); cursor: pointer; }
+.seg-b.on { background: var(--panel); color: var(--blue); box-shadow: var(--shadow); }
+
+/* log / code */
+.log { background: var(--term-bg); color: var(--term-ink); border-radius: 10px; padding: 14px;
+  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .78rem; white-space: pre-wrap;
+  max-height: 360px; overflow: auto; }
+
+/* drawer + toast */
+.drawer-scrim { position: fixed; inset: 0; background: var(--scrim); z-index: 20; }
+.drawer { position: fixed; top: 0; right: 0; height: 100vh; width: min(480px, 94vw); z-index: 21;
+  background: var(--panel); box-shadow: var(--shadow-lg); display: flex; flex-direction: column; }
+/* The `hidden` attribute must win over the display rules above, otherwise the
+   drawer/scrim can never be closed (author `display:flex` beats UA [hidden]). */
+.drawer[hidden], .drawer-scrim[hidden] { display: none; }
+.drawer-head { display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid var(--line); }
+.drawer-head h2 { font-size: 1rem; margin: 0; }
+.drawer-body { padding: 18px 20px; overflow: auto; }
+.toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+  background: var(--term-bg); color: var(--panel); padding: 11px 18px; border-radius: 10px;
+  box-shadow: var(--shadow-lg); z-index: 40; font-size: .88rem; font-weight: 600; }
+.toast.err { background: var(--red); } .toast.ok { background: var(--green); }
+
+.muted { color: var(--soft); }
+.section-hint { color: var(--soft); font-size: .86rem; margin: 0 0 16px; }
+
+/* responsive */
+@media (max-width: 980px) {
+  .card, .card.col6, .card.col8 { grid-column: span 12; }
+  .kpis { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 760px) {
+  .app { grid-template-columns: 1fr; }
+  .sidebar { position: relative; height: auto; }
+  .nav { flex-direction: row; flex-wrap: wrap; }
+  .nav-cap { display: none; }
+  .search { display: none; }
+  .choice-grid { grid-template-columns: 1fr; }
+}
+
+
+/* ==========================================================================
+   Shell additions for the module UI
+   ========================================================================== */
+
+/* -- topbar controls ----------------------------------------------------- */
+.mini-select, .mini-input {
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+  border-radius: var(--radius-sm); padding: 6px 10px; font-size: var(--fs-small);
+  font-family: inherit; min-height: var(--tap);
+}
+.mini-select:focus, .mini-input:focus { outline: none; border-color: var(--blue); }
+
+/* A labelled control. This had no styling at all, so the label, the control
+   and the hint ran together inline and wrapped wherever the column ended.
+   Stacked, the hint sits under the control it explains and the control is
+   as wide as the space allows rather than as wide as the text happens to
+   make it. min-width:0 lets it shrink inside a grid track instead of
+   forcing the track wider than the card. */
+.fld { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.fld > select, .fld > input { width: 100%; min-width: 0; }
+.fld > .hint { line-height: 1.45; }
+/* A profile the link cannot run is not a style preference; it reads as a
+   warning so it is not mistaken for a description. */
+.hint.warn { color: var(--amber-ink, var(--amber)); font-weight: 600; }
+.mini-input { min-width: 180px; }
+.inline-fld { display: inline-flex; align-items: center; gap: 8px;
+  font-size: var(--fs-small); color: var(--soft); font-weight: 600; }
+
+/* -- toolbar row --------------------------------------------------------- */
+.toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 14px; }
+.toolbar-spacer { flex: 1; }
+
+/* -- loading / empty / error convention ---------------------------------- */
+.skeleton-wrap { display: flex; flex-direction: column; gap: 10px; padding: 6px 0; }
+.skeleton-row { height: 14px; border-radius: 7px; background: var(--line-2);
+  position: relative; overflow: hidden; }
+.skeleton-row::after {
+  content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, var(--line), transparent);
+  animation: sk 1.4s infinite;
+}
+@keyframes sk { to { transform: translateX(100%); } }
+
+.state-pane { display: flex; flex-direction: column; align-items: center; gap: 12px;
+  padding: 34px 20px; text-align: center; }
+.state-icon { width: 38px; height: 38px; border-radius: 50%; display: grid;
+  place-items: center; font-weight: 800; background: var(--line-2); color: var(--faint); }
+.state-icon.err { background: var(--red-soft); color: var(--red-ink); }
+.state-msg { font-weight: 600; max-width: 46ch; }
+.state-detail { width: 100%; max-width: 620px; text-align: left; }
+.state-detail summary { cursor: pointer; color: var(--soft); font-size: var(--fs-small);
+  font-weight: 600; margin-bottom: 8px; }
+
+/* -- confirmation dialog -------------------------------------------------- */
+#modal-host[hidden] { display: none; }
+.modal-scrim { position: fixed; inset: 0; background: var(--scrim); z-index: 50;
+  display: grid; place-items: center; padding: 20px; }
+.modal { background: var(--panel); border-radius: var(--radius); padding: 22px 24px;
+  box-shadow: var(--shadow-lg); width: min(460px, 96vw); }
+.modal-title { margin: 0 0 8px; font-size: 1.05rem; }
+.modal-body { margin: 0 0 4px; color: var(--soft); font-size: .9rem; line-height: 1.5; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+.confirm-input { font-family: var(--font-mono); }
+
+/* -- log pane ------------------------------------------------------------- */
+.logpane { max-height: min(62vh, 620px); overflow: auto; scroll-behavior: auto; }
+.logpane:focus { outline: 2px solid var(--blue); outline-offset: 2px; }
+.logline { white-space: pre-wrap; word-break: break-word; padding: 1px 0;
+  font-family: var(--font-mono); font-size: var(--fs-small); line-height: 1.45; }
+.logline.lvl-debug { color: var(--faint); }
+.logline.lvl-warning { color: var(--amber); }
+.logline.lvl-error, .logline.lvl-critical { color: var(--red); font-weight: 600; }
+
+/* -- dev-only mock banner ------------------------------------------------- */
+.mock-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: var(--red); color: var(--panel); text-align: center;
+  padding: 6px; font-weight: 700; font-size: var(--fs-small); letter-spacing: .3px; }
+
+/* -- body/type now read from tokens --------------------------------------- */
+body { font-family: var(--font-ui); font-size: var(--fs-body); }
+.mono, code, pre { font-family: var(--font-mono); }
+.app { grid-template-columns: var(--sidebar-w) 1fr; }
+
+/* ---- Throughput: live test readout -------------------------------------
+   The command output used to be the display. It is evidence now: collapsed
+   by default, with the measurement itself shown as numbers and a line that
+   moves while the test runs. */
+.path-verdict { margin: 6px 0 2px; min-height: 1.2em; }
+.path-verdict .hint { display: flex; align-items: center; gap: 6px; }
+
+.live-head { display: flex; align-items: center; gap: 10px; margin: 10px 0 4px; }
+
+.raw-output { margin-top: 12px; }
+.raw-output > summary {
+  cursor: pointer; user-select: none; padding: 4px 0;
+  border-top: 1px solid var(--line);
+}
+.raw-output > summary::marker { color: var(--faint); }
+.raw-output[open] > summary { margin-bottom: 6px; }
+
+/* Kiosk: the disclosure triangle is a small target, so give it a real one. */
+:root[data-density="kiosk"] .raw-output > summary { padding: 10px 0; }
+
+/* ---- Empty / offline states --------------------------------------------
+   A panel with nothing in it should say why, not just be blank. */
+.empty-state { padding: 18px 2px; }
+.empty-state .big-state { margin-bottom: 6px; }
+.empty-state .hint { max-width: 46ch; }
+
+/* ---- Connection: bearer state ------------------------------------------
+   Status and address are what the panel is asked for; everything else is
+   detail. Previously all eight facts were the same size and weight. */
+.state-hero { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.state-dot { width: 12px; height: 12px; border-radius: 50%;
+  background: var(--faint); flex: none; }
+/* rgba rather than color-mix(): the baseline for this console is
+   Chromium/Firefox 90, and color-mix() wants 111/113. Matches .dot.ok above. */
+.state-dot.ok { background: var(--green); box-shadow: 0 0 0 4px rgba(22,179,100,.16); }
+.state-dot.idle { background: var(--faint); }
+.state-addr { font-size: .95rem; color: var(--faint); margin-top: 2px; }
+.detail-list { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+
+/* ---- TSN bridge: gate schedule strip -----------------------------------
+   A cycle drawn to scale, so a fold that leaves a third of it shut is
+   visible rather than inferred from a table of nanoseconds. */
+.gate-strip {
+  display: flex; height: 26px; width: 100%;
+  border: 1px solid var(--line); border-radius: 2px;
+  overflow: hidden; margin: 10px 0;
+}
+.gate-slot { display: block; height: 100%; flex: none; }
+.gate-slot + .gate-slot { border-left: 1px solid var(--panel); }

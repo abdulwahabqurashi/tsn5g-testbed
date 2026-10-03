@@ -1,0 +1,51 @@
+{
+  "state": "idle",
+  "step": null,
+  "active_mode": null,
+  "last_error": null,
+  "modem": {
+    "device": null,
+    "wwan_interface": "wwan0",
+    "cid": 1,
+    "model": null,
+    "qmi_device": "/dev/cdc-wdm0",
+    "rat": null,
+    "arfcn": null,
+    "mode": null,
+    "sim_ready": false,
+    "registered": false,
+    "pdu_active": false,
+    "operator": null,
+    "band": null,
+    "mac_address": null,
+    "ipv4": null,
+    "signal": {
+      "rsrp": null,
+      "rsrq": null,
+      "sinr": null,
+      "rssi": null
+    }
+  },
+  "transport": null,
+  "gptp": {
+    "running": false,
+    "locked": false,
+    "offset_ns": null,
+    "path_delay_ns": null,
+    "grandmaster": null,
+    "enabled": false,
+    "interfaces": []
+  },
+  "tas": {
+    "applied": {}
+  },
+  "jobs": {
+    "active": {
+      "modem": null,
+      "bearer": null,
+      "perf": null,
+      "switch": null,
+      "net": null
+    }
+  }
+}
