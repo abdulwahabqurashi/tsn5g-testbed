@@ -77,3 +77,62 @@ apt_install() {
     run apt-get update -q
     run env DEBIAN_FRONTEND=noninteractive apt-get install -y -q "${missing[@]}"
 }
+
+# backup_if_changed FILE — keep FILE.bak-<date> before a render replaces it
+backup_if_changed() {
+    [ -f "$1" ] || return 0
+    run cp -p "$1" "$1.bak-$(date +%Y%m%d-%H%M%S)"
+}
+
+# install_sudoers TEMPLATE DEST — render, validate with visudo, then install
+install_sudoers() {
+    local tmp; tmp=$(mktemp)
+    local list v; list=$(for v in $SITE_VARS; do printf '${%s} ' "$v"; done)
+    envsubst "$list" < "$1" > "$tmp"
+    if ! visudo -c -q -f "$tmp" >/dev/null; then
+        rm -f "$tmp"; warn "$1 renders to an invalid sudoers file — not installed"; return 0
+    fi
+    rm -f "$tmp"
+    render "$1" "$2" 0440
+}
+
+# install_bundle NAME DESTDIR — unpack $VENDOR_DIR/NAME.tar.gz into DESTDIR/NAME
+# after checking its sha256 against video/MANIFEST. Returns 1 if the bundle is
+# missing (the caller carries on without it).
+install_bundle() {
+    local name=$1 dest=$2 tarball=$VENDOR_DIR/$1.tar.gz want got
+    want=$(awk -v f="$name.tar.gz" '$2 == f {print $1}' "$REPO_ROOT/video/MANIFEST")
+    [ -n "$want" ] || die "$name.tar.gz is not listed in video/MANIFEST"
+    if [ ! -f "$tarball" ]; then
+        warn "$tarball not found — copy the vendor bundle there (video/README.md) and re-run"
+        return 1
+    fi
+    got=$(sha256sum "$tarball" | cut -d' ' -f1)
+    [ "$got" = "$want" ] || die "$tarball has sha256 $got, MANIFEST says $want — wrong or corrupt bundle"
+    if [ -d "$dest/$name" ] && [ "$(cat "$dest/.$name.sha256" 2>/dev/null)" = "$want" ]; then
+        echo "   $name already unpacked (sha256 matches)"
+        return 0
+    fi
+    run mkdir -p "$dest"
+    run rm -rf "$dest/$name.new"
+    run mkdir -p "$dest/$name.new"
+    run tar -xzf "$tarball" -C "$dest/$name.new" --strip-components=1
+    run rm -rf "$dest/$name"
+    run mv "$dest/$name.new" "$dest/$name"
+    if [ "$DRY_RUN" = 1 ]; then echo "   would record $want in $dest/.$name.sha256"
+    else echo "$want" > "$dest/.$name.sha256"; fi
+    echo "   unpacked $name -> $dest/$name"
+}
+
+# wait_health URL UNIT — wait up to 45 s for URL to answer; show the unit's log if not
+wait_health() {
+    [ "$DRY_RUN" = 1 ] && { echo "   would wait for $1"; return 0; }
+    local i
+    for i in $(seq 45); do
+        curl -sf -o /dev/null --max-time 3 "$1" && { echo "   $2 answers at $1"; return 0; }
+        sleep 1
+    done
+    warn "$2 did not answer at $1 within 45 s"
+    systemctl --no-pager --lines=20 status "$2" >&2 || true
+    return 1
+}

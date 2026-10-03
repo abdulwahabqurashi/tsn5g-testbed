@@ -1,0 +1,7 @@
+# Vendor bundles: NOT in git (FLIR Spinnaker + Qt binaries, no licence to
+# redistribute). Put these exact files in $VENDOR_DIR (site.env) on the machine
+# that needs them; install.sh checks the hash before unpacking.
+#
+# sha256                                                            file                 used by
+01e56de4f1deea2a28ac19cc81e27ca147f3550fc7248f70ff0881a220812521  pathStream1.tar.gz   ue      (camera encoder, U5G/x11/pathStream1.tar.gz)
+e56f51b82232a42edfb112a2b76c33041fdc59853cdc51a84fcaaf4ded591aa2  pathView2.tar.gz     viewer  (video viewer, U5G/pathView2.tar.gz — the generic build)

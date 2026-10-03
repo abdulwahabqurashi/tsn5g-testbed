@@ -12,12 +12,11 @@ work; nothing outside the modem layer is vendor-specific.
 
 ## 1. Install
 
-On the UE machine (Ubuntu 22.04 or 24.04):
+On the UE machine (Ubuntu 24.04), from the repository root with `site.env`
+filled in (see ../../docs/DEPLOY.md):
 
 ```bash
-tar xzf tsn5g-ue-<version>.tar.gz
-cd tsn5g-ue-<version>
-sudo ./install.sh
+sudo ./install.sh ue
 ```
 
 The installer reports the URL when the UI is answering — it waits and verifies
@@ -26,13 +25,14 @@ rather than assuming. Open `http://<the-ue>:8080/`.
 **It masks ModemManager.** Both it and this daemon want `/dev/ttyUSB*`; if both
 run they fight, and ModemManager rewrites radio preferences underneath you.
 Stopping it is not enough, D-Bus restarts it — masking is the only thing that
-holds. Pass `--no-mask-mm` if you need it, and expect contention.
-
-To remove: `sudo ./uninstall.sh` (add `--purge` to drop config and history too).
+holds. 
+To remove the units: `sudo ./install.sh ue --remove` (code, config and history are kept).
 
 ### Before your first connection
 
-Two values in `/etc/tsn5g-ue/tsn5g-ue.yaml` must match your network:
+`install.sh` renders `/etc/tsn5g/tsn5g-ue.yaml` from `site.env`, so these
+already match your network if site.env does (change site.env and re-run the
+installer rather than editing the rendered file):
 
 | Field | What it is |
 |---|---|
@@ -45,10 +45,10 @@ Then `sudo systemctl restart tsn5g-ue`.
 > `sudo` — it asks polkit, which by default wants an administrator password
 > typed into an authentication agent. A non-interactive shell or script has
 > no agent, so the call hangs and then reports `Method call timed out`, which
-> looks like a permission error but is not. Installing the rule shipped at
-> `docs/tsn5g-ue.polkit.rules` lets the console user run plain
-> `systemctl restart tsn5g-ue` with no `sudo` and no prompt. See that file's
-> header for the one-line install and what it does and does not grant.
+> looks like a permission error but is not. `install.sh ue` installs a polkit
+> rule (`templates/etc/10-tsn5g-ue.rules.in`) that lets the console user run
+> plain `systemctl restart tsn5g-ue` with no `sudo` and no prompt. Its header
+> says what it does and does not grant.
 
 Everything else auto-detects. In particular **do not pin `modem.device`** — the
 AT serial port number moves between boots (we have seen the same machine use

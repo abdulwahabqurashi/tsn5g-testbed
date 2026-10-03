@@ -42,8 +42,8 @@ APP=${ENCODER_DIR:-${PREFIX:-/opt/tsn5g}/video/encoder/pathStream1}
 RUN_USER=${UE_USER:-${SUDO_USER:-amrc}}
 NS=${CAM2_NETNS:-cam2}
 LOGDIR=/tmp/camera-encoders
-CAM1_CFG="$APP/camera1-protected.json"
-CAM2_CFG="$APP/camera2-besteffort.json"
+CAM1_CFG="$APP/camera1-protected.json"   # rendered by install.sh from video/encoder/camera1.json.in
+CAM2_CFG="$APP/camera2-besteffort.json"  # ... camera2.json.in
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # The installed, rendered daemon config; the checkout's dev config otherwise.
 DAEMON_CFG=${ETC_DIR:-/etc/tsn5g}/tsn5g-ue.yaml
@@ -143,7 +143,7 @@ start() {
     echo
     if [ "$ok" -eq 2 ]; then
         echo "Both encoders are up. Two windows should be on screen $DISP."
-        echo "Press Start in each — there is no auto-start."
+        echo "Start is pressed by tsn5g-cameras.service (or the UI); by hand: python3 -m tsn5g_ue.encoder_gui 2"
     fi
     echo "logs: $LOGDIR/cam1.log  $LOGDIR/cam2.log"
 }

@@ -31,13 +31,15 @@ Browser / kiosk (UI)  ──HTTP──►  tsn5g-ue daemon (:8080)
                                   └─ Controller     (state machine: idle→connecting→running)
 ```
 
-## Install (on the UE, once during imaging)
+## Install
+
+From the repository root, with `site.env` filled in:
 
 ```bash
-sudo ./scripts/install.sh          # installs deps + systemd units
+sudo ./install.sh ue               # deps, code to /opt/tsn5g, config, units, encoders
 ```
 
-Then open `http://<ue-ip>:8080` (or let the kiosk wrapper open it automatically).
+Then open `http://<ue-ip>:<API_PORT>` (see ../docs/DEPLOY.md).
 
 ## Development
 

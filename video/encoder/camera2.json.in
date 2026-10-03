@@ -1,0 +1,7 @@
+{
+    "nicid": 0,
+    "ipaddress": "${CORE_BEARER_IP}",
+    "port": "${CAM2_PORT}",
+    "frameRefreshRate": 20,
+    "fifoMonitoringRate": 500
+}

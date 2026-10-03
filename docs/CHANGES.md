@@ -6,6 +6,62 @@ back**. Commit hashes are filled in as `git log --oneline` shows them.
 
 ---
 
+## 4 — `install.sh ue`: the whole UE in one command
+
+**What**
+- `install.sh` at the repository root: one installer, the role as its argument
+  (`ue` now; `core` and `viewer` in later commits). Options: `--dry-run`
+  (renders into `rendered/`, changes nothing, needs no sudo), `--site FILE`,
+  `--no-start`, `--start-cameras`, `--remove`.
+- `lib/install-ue.sh`, nine steps, each safe to repeat:
+  1. packages (all from the Ubuntu archive; includes Xvfb, x11vnc, openbox,
+     linuxptp, conntrack, tcpdump, libqmi-utils, iperf3)
+  2. ModemManager masked
+  3. NetworkManager leaves the camera NICs alone; sysctl
+  4. code to `$PREFIX` (`/opt/tsn5g`), root-owned; site.env to `$ETC_DIR`
+  5. daemon config rendered to `$ETC_DIR/tsn5g-ue.yaml` (previous copy kept as
+     `.bak-<date>`); systemd units rendered
+  6. sudoers (validated with `visudo` before it is installed) and polkit
+  7. encoder bundle unpacked from `$VENDOR_DIR` after a sha256 check against
+     `video/MANIFEST`; our `run.sh` and camera configs laid over it
+  8. units enabled at boot
+  9. started; waits for the UI's `/api/health`. Running encoders are left
+     alone unless `--start-cameras`.
+- `lib/render.sh` gains `install_sudoers`, `install_bundle`, `wait_health`,
+  `backup_if_changed`.
+- `video/`: `MANIFEST`, the encoder's `run.sh`, `camera1/2.json.in`.
+- The old single-product installer (`ue/scripts/install.sh`, `uninstall.sh`,
+  `package.sh`, `ue/systemd/`) is gone; the kiosk unit is a template too.
+
+**Why** — the first rig was assembled by hand over weeks (units copied from the
+repo, sudoers installed by hand, encoders unpacked into a home directory, NM
+conf written once). A new site now runs one command per machine.
+
+**Deploy** — on a new UE (or to move this one onto `/opt/tsn5g`):
+```bash
+sudo mkdir -p /srv/tsn5g-vendor && sudo cp pathStream1.tar.gz /srv/tsn5g-vendor/
+cp site.env.example site.env && nano site.env
+./install.sh ue --dry-run            # read what it would do; files in rendered/
+sudo ./install.sh ue
+```
+On the first rig this replaces the four units that pointed into
+`~/camera_application/tsn5g-ue-app`; the daemon restarts (about 10 s, the data
+call survives), the encoders are left running until `--start-cameras`.
+
+**Verify**
+```bash
+systemctl is-active tsn5g-ue tsn5g-cam2-netns tsn5g-vnc-display tsn5g-cameras
+curl -s localhost:8080/api/health
+/opt/tsn5g/tools/camera-loss-check.sh 30          # both cameras ~0 % loss
+```
+
+**Roll back** — `sudo ./install.sh ue --remove`, then re-install the old units
+from `~/camera_application/tsn5g-ue-app` (its `scripts/install-autostart.sh`
+and `systemd/tsn5g-ue.di1200.service`). `/etc/tsn5g/*.bak-*` holds the
+previous config.
+
+---
+
 ## 3 — UE scripts, units and tools take their values from site.env
 
 **What**

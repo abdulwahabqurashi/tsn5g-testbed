@@ -1,0 +1,22 @@
+# Rendered from ue/templates/systemd/tsn5g-ue-kiosk.service.in by install.sh
+# Optional (install.sh does not enable it): a full-screen browser on the
+# local UI, for a UE with a monitor. Enable with:
+#   sudo systemctl enable --now tsn5g-ue-kiosk
+[Unit]
+Description=TSN-5G UE Console kiosk (full-screen browser on the local UI)
+After=tsn5g-ue.service graphical.target
+Wants=tsn5g-ue.service
+Requires=graphical.target
+
+[Service]
+Type=simple
+# Runs in the console user's graphical session.
+User=${UE_USER}
+Environment=DISPLAY=:0
+ExecStartPre=/bin/sh -c 'until curl -sf http://localhost:${API_PORT}/ >/dev/null; do sleep 1; done'
+ExecStart=${PREFIX}/ue/desktop/kiosk.sh
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical.target
