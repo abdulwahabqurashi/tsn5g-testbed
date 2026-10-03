@@ -15,6 +15,9 @@ clock taprio schedules on and PTP disciplines.
              window (0-1560 us). This is what a time-aware talker does.
   uniform    the same rate, evenly spaced and ignorant of the schedule: what a
              camera does.
+  sweep      one packet per CYCLE, its offset stepping by STEP through the
+             cycle (0, STEP, 2*STEP, ...): finds the phase at which the radio
+             carries a packet fastest. The listener reports delay per offset.
 
 The listener reports loss (from sequence gaps) and one-way delay. Sender and
 listener on one host (the sandbox) share a clock, so the delay is absolute.
@@ -30,7 +33,7 @@ import struct
 import sys
 import time
 
-HDR = struct.Struct("!QQ")          # sequence, send time (ns, CLOCK_TAI)
+HDR = struct.Struct("!QQI")         # sequence, send time (ns, CLOCK_TAI), offset (us)
 
 
 def tai_ns():
@@ -60,15 +63,28 @@ def send(a):
         while t < end:
             sleep_until(t)
             for _ in range(a.burst):
-                s.sendto(HDR.pack(seq, tai_ns()) + pad, (a.dst, a.port))
+                s.sendto(HDR.pack(seq, tai_ns(), a.offset_us) + pad, (a.dst, a.port))
                 seq += 1
             t += cyc
+    elif a.mode == "sweep":
+        n = max(1, a.cycle_us // a.step_us)
+        base = (tai_ns() // cyc + 1) * cyc
+        k = 0
+        while True:
+            off = (k % n) * a.step_us
+            t = base + k * cyc + off * 1000
+            if t >= end:
+                break
+            sleep_until(t)
+            s.sendto(HDR.pack(seq, tai_ns(), off) + pad, (a.dst, a.port))
+            seq += 1
+            k += 1
     else:
         gap = cyc // a.burst
         t = tai_ns() + gap
         while t < end:
             sleep_until(t)
-            s.sendto(HDR.pack(seq, tai_ns()) + pad, (a.dst, a.port))
+            s.sendto(HDR.pack(seq, tai_ns(), 0) + pad, (a.dst, a.port))
             seq += 1
             t += gap
     print(json.dumps({"sent": seq, "mode": a.mode}))
@@ -86,7 +102,7 @@ def recv(a):
     s.bind(("0.0.0.0", a.port))
     s.settimeout(0.5)
     end = time.monotonic() + a.duration
-    delays, seqs = [], []
+    delays, seqs, offs = [], [], []
     while time.monotonic() < end:
         try:
             data, _ = s.recvfrom(65535)
@@ -95,9 +111,10 @@ def recv(a):
         now = tai_ns()
         if len(data) < HDR.size:
             continue
-        seq, sent = HDR.unpack_from(data)
+        seq, sent, off = HDR.unpack_from(data)
         seqs.append(seq)
         delays.append(now - sent)
+        offs.append(off)
     res = {"received": len(seqs)}
     if seqs:
         expected = max(seqs) + 1
@@ -112,6 +129,14 @@ def recv(a):
             "variation_us": {"p50": us(pct(d, 50) - lo), "p99": us(pct(d, 99) - lo),
                              "max": us(d[-1] - lo)},
         })
+        if len(set(offs)) > 1:          # sweep: delay per send offset, above the overall best
+            by = {}
+            for o, dl in zip(offs, delays):
+                by.setdefault(o, []).append(dl)
+            res["per_offset_us"] = {
+                str(o): {"n": len(v), "p50": us(pct(sorted(v), 50) - lo),
+                         "p99": us(pct(sorted(v), 99) - lo)}
+                for o, v in sorted(by.items())}
     with open(a.out, "w") as f:
         json.dump(res, f, indent=1)
     print(json.dumps(res))
@@ -124,7 +149,8 @@ def main():
     ps.add_argument("--dst", required=True)
     ps.add_argument("--port", type=int, required=True)
     ps.add_argument("--sport", type=int, default=0, help="source port (5202 = the GBR flow)")
-    ps.add_argument("--mode", choices=["scheduled", "uniform"], default="scheduled")
+    ps.add_argument("--mode", choices=["scheduled", "uniform", "sweep"], default="scheduled")
+    ps.add_argument("--step-us", type=int, default=250, help="sweep: offset step")
     ps.add_argument("--cycle-us", type=int, default=4000)
     ps.add_argument("--offset-us", type=int, default=200)
     ps.add_argument("--burst", type=int, default=4)

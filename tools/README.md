@@ -10,6 +10,8 @@ address, the modem interface, ports — comes from `site.env` via `common.sh`.
 | `camera-loss-check.sh [s]` | Are datagrams lost between the UE and the core's N3? (UE counters vs a core capture, same instant) | cameras running |
 | `radio-loss-test.sh` | Raw radio loss for four UDP patterns, no cameras | cameras stopped |
 | `lcp-test.sh 1\|2\|2b\|2c\|3` | Does the modem honour QoS flow priority under congestion? (LCP brief) | cameras stopped |
+| `qbv-live.sh` | Stage 6: does a Qbv gate help on the real uplink? Gate vs today's priority policy, scheduled vs unscheduled talker, plus a scan of the radio's 5 ms TDD frame | cameras stopped, SSH key to the core |
+| `qbv-sandbox.sh` | The same comparison in throwaway namespaces with an emulated radio (no wwan0 touched) | sudo |
 | `modem/ue_qmi_up.sh up\|down\|status` | Bring the data call up by hand (the daemon normally does it) | daemon stopped |
 | `modem/at.py 'AT…'` | Send one AT command to the modem | — |
 
