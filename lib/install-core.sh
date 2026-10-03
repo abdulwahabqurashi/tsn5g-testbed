@@ -65,10 +65,13 @@ install_core() {
     done
     hnet_keys "$ETC_DIR/open5gs/hnet"
 
-    say "5/9 system config (sysctl, logrotate)"
+    say "5/9 system config (sysctl, logrotate, no fwupd auto-refresh)"
     run install -m0644 "$REPO_ROOT/core/etc/90-tsn-udp.conf" /etc/sysctl.d/90-tsn-udp.conf
     run install -m0644 "$REPO_ROOT/core/etc/logrotate-tsn5g" /etc/logrotate.d/tsn5g
     run sysctl -q --system
+    # fwupd's daily refresh stalled the PCIe bus and wedged the X410 stream on
+    # the first rig (gnb.yaml, ru_sdr comments). Firmware updates stay manual.
+    run systemctl disable --now fwupd-refresh.timer 2>/dev/null || true
 
     say "6/9 systemd units"
     local t

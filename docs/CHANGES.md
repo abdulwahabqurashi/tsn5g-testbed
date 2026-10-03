@@ -2,7 +2,63 @@
 
 One section per commit, newest first. Each says **what** changed, **why**,
 **how to deploy** it on a running site, **how to verify** it, and **how to roll
-back**. Commit hashes are filled in as `git log --oneline` shows them.
+back**. To read one commit in full: `git show <hash>`.
+
+| # | Commit | Title |
+|---|---|---|
+| 9 | *(this commit; `git log -1 -- docs/DEPLOY.md`)* | Documentation: deploy guide, lessons, GitHub workflow, secret check |
+| 8 | `ab7c260` | `install.sh viewer`: the video viewer as a service |
+| 7 | `3376c28` | `install.sh core`: build and run the core and gNB from pinned sources |
+| 6 | `aeeb776` | Core scripts and systemd units: the core starts at boot, NAT persists |
+| 5 | `1df0865` | Core configuration in git: gNB, Open5GS, subscriber |
+| 4 | `8627f1d` | `install.sh ue`: the whole UE in one command |
+| 3 | `796eed2` | UE scripts, units and tools take their values from site.env |
+| 2 | `df77be5` | One settings file (site.env); UE code reads its site values from config |
+| 1 | `d6e4a04` | Repository skeleton; UE app imported with its history (`40f27c2`) |
+
+Before these, `git log -- ue/` shows the UE application's own 40 commits
+(`cab4d17` … `fe7c587`).
+
+---
+
+## 9 — Documentation: deploy guide, lessons, GitHub workflow, secret check
+
+**What**
+- `docs/DEPLOY.md` — a new site from scratch. It covers:
+  - hardware;
+  - filling in site.env, and where to find each value;
+  - core RT tuning (BIOS, picking cores, `rt-grub.sh`);
+  - the X410 link;
+  - the three installs in order (core, viewer, UE);
+  - first connection and the demo;
+  - a symptom → cause table;
+  - changing things later;
+  - moving the first rig onto this layout.
+- `docs/LESSONS.md` — every trap from the first rig: symptom, cause, and
+  where the fix now lives.
+- `docs/GITHUB.md` — a private repo, a deploy key per machine, the first push
+  from the UE, a clone on the core, the everyday pull / commit / push, and
+  what to do on rejection, conflict or a refused commit.
+- `tools/git-hooks/pre-commit` — refuses site.env, secrets.env, `.env` files,
+  WebUI backups, SIM keys or private keys in added lines (Open5GS's upstream
+  test keys excepted), and files over 50 MB. Enable it with
+  `git config core.hooksPath tools/git-hooks`.
+- `install.sh core` disables `fwupd-refresh.timer` (it wedged the X410 stream
+  on the first rig).
+- `core/ptp/ptp4l-gptp.conf` no longer names the first rig's NIC. The
+  interface comes from `-i CORE_PTP_IF`; before, ptp4l would also have run on
+  the old port.
+- README layout, `lib/README.md`, `tools/README.md`.
+
+**Why** — the testbed is moving to new hardware and will be used by people
+who were not there when it was built.
+
+**Deploy** — documentation only. Enable the hook in each clone:
+`git config core.hooksPath tools/git-hooks`.
+
+**Verify** — follow DEPLOY.md on the new hardware. That is the acceptance test.
+
+**Roll back** — `git revert <this commit>`.
 
 ---
 

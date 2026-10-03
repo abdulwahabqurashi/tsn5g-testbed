@@ -29,15 +29,21 @@ new site. Secrets (SIM keys) go in `secrets.env`; neither file is committed.
 ## Layout
 
 ```
-site.env.example   every site-specific value, with comments
-install.sh         one installer, one argument: the role
-lib/               shared installer helpers (template rendering, checks)
-ue/                UE daemon, web UI, camera rig scripts, systemd units
-core/              gNB and Open5GS configs, the Open5GS fork source, build and ops scripts
-video/             encoder and viewer configs and launchers (vendor binaries fetched, not stored)
-tools/             measurement scripts: demo run, LCP tests, camera loss check …
-docs/              DEPLOY (new site), CHANGES (every commit), LESSONS (traps found), GITHUB
+site.env.example     every site-specific value, with comments  (copy to site.env)
+secrets.env.example  SIM keys (copy to secrets.env, core only)
+install.sh           one installer: ./install.sh ue | core | viewer  [--dry-run]
+lib/                 installer steps per role + template rendering
+ue/                  UE daemon + web UI (tsn5g_ue/, web/), rig scripts, templates/
+core/                gnb/ and open5gs/ configs, open5gs/src (the fork), srsran/ patch,
+                     scripts/ (health, restart, RT tuning), systemd/, build.sh
+video/               encoder/viewer overlays and configs; vendor bundles by sha256 (MANIFEST)
+tools/               measurement scripts (demo-run, camera-loss-check, lcp-test ...),
+                     modem/ helpers, git-hooks/
+docs/                DEPLOY, CHANGES, LESSONS, GITHUB; history/ = first-rig notes
 ```
+
+Installed layout on every machine: code in `/opt/tsn5g`, rendered configs and
+a copy of `site.env` in `/etc/tsn5g`, logs in `/var/log/tsn5g`.
 
 ## Documentation
 

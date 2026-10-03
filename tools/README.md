@@ -13,6 +13,9 @@ address, the modem interface, ports — comes from `site.env` via `common.sh`.
 | `modem/ue_qmi_up.sh up\|down\|status` | Bring the data call up by hand (the daemon normally does it) | daemon stopped |
 | `modem/at.py 'AT…'` | Send one AT command to the modem | — |
 
+| `git-hooks/pre-commit` | Refuses commits containing site.env, secrets, SIM keys, big files (`git config core.hooksPath tools/git-hooks`) | — |
+| `core-experiments/` | The first rig's one-off core tests, unchanged (not parameterised) | — |
+
 The analysers (`demo-analyse.py`, `lcp-analyse.py`, `n3count.py`) are run by
 the scripts above and can be re-run on a saved result directory.
 

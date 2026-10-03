@@ -1,0 +1,29 @@
+#!/bin/bash
+# Refuses a commit that would publish a secret or a huge file.
+# Enabled per clone with:   git config core.hooksPath tools/git-hooks
+# (Bypass only if you are sure:  git commit --no-verify)
+fail=0
+bad() { echo "pre-commit: $*" >&2; fail=1; }
+
+files=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -z "$files" ] && exit 0
+
+while IFS= read -r f; do
+    case "$f" in
+        site.env|secrets.env|*/site.env|*/secrets.env|*.secret|*/.env|.env)
+            bad "$f is site-local or secret and must not be committed" ;;
+        backup-*.json|*/backup-*.json)
+            bad "$f looks like an Open5GS WebUI backup (contains SIM keys in plain text)" ;;
+    esac
+    [ -f "$f" ] || continue
+    size=$(stat -c%s "$f")
+    [ "$size" -gt 50000000 ] && bad "$f is $((size / 1000000)) MB; GitHub rejects >100 MB and big files bloat every clone"
+done <<< "$files"
+
+# Content: SIM keys and private keys (upstream Open5GS test keys excepted)
+hits=$(git diff --cached -U0 -- $(echo "$files" | grep -v '^core/open5gs/src/') 2>/dev/null \
+    | grep -E '^\+' \
+    | grep -iE '(UE_K|UE_OPC|"k"|"opc"|\bopc\b|\bki\b)[" ]*[:=][ "]*[0-9a-f]{32}|BEGIN [A-Z ]*PRIVATE KEY')
+[ -n "$hits" ] && { bad "staged lines look like SIM keys or a private key:"; echo "$hits" | cut -c1-100 | sed 's/[0-9a-fA-F]\{24\}/<redacted>/g' >&2; }
+
+[ "$fail" = 0 ] || { echo "pre-commit: commit refused (see above)" >&2; exit 1; }
