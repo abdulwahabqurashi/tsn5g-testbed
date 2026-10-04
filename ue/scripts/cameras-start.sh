@@ -117,6 +117,14 @@ start() {
     echo "display: $DISP"
     install -d -o "$RUN_USER" -g "$RUN_USER" "$LOGDIR"
     stop
+    # Camera 1 is NATed to ONE source port (the GBR filter's). A new encoder
+    # comes up on a new local port; while the old process's conntrack entry
+    # still holds that mapping (30 s for UDP), every packet fails NAT and is
+    # dropped. Clear both cameras' entries so the new streams map at once.
+    if command -v conntrack >/dev/null; then
+        conntrack -D -p udp --dport "${CAM1_PORT:-50451}" >/dev/null 2>&1
+        conntrack -D -p udp --dport "${CAM2_PORT:-50452}" >/dev/null 2>&1
+    fi
 
     echo "starting camera 1 (root namespace, protected lane :50451)"
     setsid sudo -u "$RUN_USER" env DISPLAY="$DISP" ${XA:+XAUTHORITY="$XA"} \

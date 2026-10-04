@@ -46,6 +46,7 @@ PHASES=${PHASES:-"P-baseline A-none B-uni B-sch F-uni F-sch G-sch S-sweep"}   # 
 OUT=${OUT:-$HOME/qbv-runs/$(date +%Y%m%d-%H%M%S)}
 NS=qbvt; VR=qbvt0; VN=qbvt1; NET=10.201.0
 TPORT=5301; FPORT=5311
+TSPORT=40301   # the talker's local port, the same in every phase (see conntrack_reset)
 
 die() { echo "error: $*" >&2; exit 1; }
 say() { echo "$*" | tee -a "$OUT/run.log"; }
@@ -149,6 +150,18 @@ set_shaper() {    # on | off   (on = today's policy: HTB below the radio, protec
     fi
 }
 
+# The protected talker is NATed to ONE external port (GBR_PORT), so it rides the
+# GBR flow. If a phase's talker came from a new local port while the previous
+# phase's conntrack entry still held that mapping (UDP: 30 s after its last
+# packet), every packet failed NAT and was dropped (conntrack insert_failed):
+# the first two live runs lost ~75 % for that reason alone. So the talker keeps
+# one local port, and its entries are cleared before every phase.
+conntrack_reset() {
+    sudo conntrack -D -p udp --orig-port-dst $TPORT >/dev/null 2>&1
+    sudo conntrack -D -p udp --orig-port-dst $FPORT >/dev/null 2>&1
+    return 0
+}
+
 # ---------------------------------------------------------------- diagnostics
 # Every counter a talker packet passes on its way from the namespace to wwan0,
 # so a loss can be pinned to one hop instead of guessed at.
@@ -173,6 +186,7 @@ run_phase() {   # name gate shaper mode flood [talker args...]
     local dur=$DUR; [ "$mode" = sweep ] && dur=$SWEEP_DUR
     say "== $name: gate=$gate shaper=$shaper talker=$mode flood=$flood (${dur}s)"
     set_gate "$gate"; set_shaper "$shaper"
+    conntrack_reset
     ssh -o BatchMode=yes "$CORE_SSH" "timeout $((dur + 15)) python3 /tmp/qbv-talker.py recv --port $TPORT --duration $((dur + 6)) --out /tmp/qbv-$name.json" >/dev/null &
     local rx=$!
     sleep 2
@@ -182,7 +196,7 @@ run_phase() {   # name gate shaper mode flood [talker args...]
         sudo ip netns exec $NS iperf3 -c "$CORE_IP" -p $FPORT -u -b ${FLOOD_MBPS}M -l 1200 -t $((dur + 2)) -J > "$OUT/$name.flood.json" 2>/dev/null &
         sleep 1
     fi
-    sudo ip netns exec $NS python3 "$TALKER" send --dst "$CORE_IP" --port $TPORT --mode "$mode" --duration "$dur" "$@" > "$OUT/$name.sent.json"
+    sudo ip netns exec $NS python3 "$TALKER" send --dst "$CORE_IP" --port $TPORT --sport $TSPORT --mode "$mode" --duration "$dur" "$@" > "$OUT/$name.sent.json"
     wait
     snap "$OUT/$name.diag-after"
     scp -q "$CORE_SSH:/tmp/qbv-$name.json" "$OUT/$name.talker.json" 2>/dev/null || say "   (no talker result for $name)"
