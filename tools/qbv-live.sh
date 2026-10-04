@@ -208,13 +208,13 @@ run_phase() {   # name gate shaper mode flood [talker args...]
     set_gate "$gate"; set_shaper "$shaper"
     if [ "$shaper" = daemon ]; then QUEUE_OWNER=daemon; else QUEUE_OWNER=script; fi
     conntrack_reset
-    ssh -o BatchMode=yes "$CORE_SSH" "timeout $((dur + 15)) python3 /tmp/qbv-talker.py recv --port $TPORT --duration $((dur + 6)) --out /tmp/qbv-$name.json" >/dev/null &
+    local warm=1; [ "$flood" = yes ] && [ "$shaper" = daemon ] && warm=10   # auto-rate settles first
+    ssh -o BatchMode=yes "$CORE_SSH" "timeout $((dur + warm + 20)) python3 /tmp/qbv-talker.py recv --port $TPORT --duration $((dur + warm + 8)) --out /tmp/qbv-$name.json" >/dev/null &
     local rx=$!
     sleep 2
     snap "$OUT/$name.diag-before"
     if [ "$flood" = yes ]; then
         ssh -o BatchMode=yes "$CORE_SSH" "iperf3 -s -p $FPORT -1 -D"; sleep 1
-        local warm=1; [ "$shaper" = daemon ] && warm=10   # let auto-rate find the radio's rate
         sudo ip netns exec $NS iperf3 -c "$CORE_IP" -p $FPORT -u -b ${FLOOD_MBPS}M -l 1200 -t $((dur + warm + 1)) -J > "$OUT/$name.flood.json" 2>/dev/null &
         sleep $warm
     fi
