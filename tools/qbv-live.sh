@@ -42,6 +42,7 @@ DUR=${DUR:-30}
 SHAPE_MBPS=${SHAPE_MBPS:-40}
 FLOOD_MBPS=${FLOOD_MBPS:-80}
 SWEEP_DUR=${SWEEP_DUR:-40}
+PHASES=${PHASES:-"P-baseline A-none B-uni B-sch F-uni F-sch G-sch S-sweep"}   # e.g. PHASES="P-baseline A-none B-uni"
 OUT=${OUT:-$HOME/qbv-runs/$(date +%Y%m%d-%H%M%S)}
 NS=qbvt; VR=qbvt0; VN=qbvt1; NET=10.201.0
 TPORT=5301; FPORT=5311
@@ -148,22 +149,42 @@ set_shaper() {    # on | off   (on = today's policy: HTB below the radio, protec
     fi
 }
 
+# ---------------------------------------------------------------- diagnostics
+# Every counter a talker packet passes on its way from the namespace to wwan0,
+# so a loss can be pinned to one hop instead of guessed at.
+snap() {   # file
+    {
+        echo "### ns nstat";      sudo ip netns exec $NS nstat -az 2>/dev/null | grep -E "UdpOutDatagrams|UdpSndbufErrors|UdpNoPorts|IpOutRequests|IpOutDiscards|IpOutNoRoutes"
+        echo "### ns link";       sudo ip netns exec $NS ip -s -s link show $VN
+        echo "### root link";     ip -s -s link show $VR; ip -s -s link show "$WWAN"
+        echo "### root nstat";    nstat -az 2>/dev/null | grep -E "IpForwDatagrams|IpOutDiscards|IpOutNoRoutes|IpInDiscards|IpInAddrErrors|IpExtInNoRoutes|IpInHdrErrors"
+        echo "### nat";           sudo iptables -t nat -L POSTROUTING -v -n -x | grep -E "$NET|pkts"
+        echo "### forward";       sudo iptables -L FORWARD -v -n -x | head -12
+        echo "### mangle";        sudo iptables -t mangle -L POSTROUTING -v -n -x | head -12
+        echo "### conntrack";     sudo conntrack -S 2>/dev/null | awk '{for(i=2;i<=NF;i++){split($i,a,"=");s[a[1]]+=a[2]}} END{for(k in s) printf "%s=%d ", k, s[k]; print ""}'
+        echo "### softnet";       python3 -c "print(sum(int(l.split()[1],16) for l in open('/proc/net/softnet_stat')))"
+    } > "$1" 2>&1
+}
+
 # --------------------------------------------------------------------- phases
 run_phase() {   # name gate shaper mode flood [talker args...]
     local name=$1 gate=$2 shaper=$3 mode=$4 flood=$5; shift 5
+    case " $PHASES " in *" $name "*) ;; *) return 0 ;; esac
     local dur=$DUR; [ "$mode" = sweep ] && dur=$SWEEP_DUR
     say "== $name: gate=$gate shaper=$shaper talker=$mode flood=$flood (${dur}s)"
     set_gate "$gate"; set_shaper "$shaper"
     ssh -o BatchMode=yes "$CORE_SSH" "timeout $((dur + 15)) python3 /tmp/qbv-talker.py recv --port $TPORT --duration $((dur + 6)) --out /tmp/qbv-$name.json" >/dev/null &
     local rx=$!
     sleep 2
+    snap "$OUT/$name.diag-before"
     if [ "$flood" = yes ]; then
         ssh -o BatchMode=yes "$CORE_SSH" "iperf3 -s -p $FPORT -1 -D"; sleep 1
         sudo ip netns exec $NS iperf3 -c "$CORE_IP" -p $FPORT -u -b ${FLOOD_MBPS}M -l 1200 -t $((dur + 2)) -J > "$OUT/$name.flood.json" 2>/dev/null &
         sleep 1
     fi
-    sudo ip netns exec $NS python3 "$TALKER" send --dst "$CORE_IP" --port $TPORT --mode "$mode" --duration "$dur" "$@" >/dev/null
+    sudo ip netns exec $NS python3 "$TALKER" send --dst "$CORE_IP" --port $TPORT --mode "$mode" --duration "$dur" "$@" > "$OUT/$name.sent.json"
     wait
+    snap "$OUT/$name.diag-after"
     scp -q "$CORE_SSH:/tmp/qbv-$name.json" "$OUT/$name.talker.json" 2>/dev/null || say "   (no talker result for $name)"
     tc -s qdisc show dev "$WWAN" > "$OUT/$name.wwan0-stats"
     sudo ip netns exec $NS tc -s qdisc show dev $VN > "$OUT/$name.gate-stats"
@@ -208,5 +229,37 @@ if sw:
         bar = "#" * int(round(v["p50"] / 250))
         mark = "  <- fastest" if v["p50"] == best else ""
         print(f"{int(o) / 1000:>10.2f}{v['p50'] / 1000:>8.2f}  {bar}{mark}")
+import re
+def num(txt, pat):
+    m = re.search(pat, txt, re.M)
+    return int(m.group(1)) if m else None
+def linkstats(txt, dev):
+    """(tx_packets, tx_dropped, rx_packets, rx_dropped) of one device in `ip -s -s link` output."""
+    m = re.search(r"\d+: " + re.escape(dev) + r"[@:].*?RX:.*?\n\s*(\d+)\s+(\d+)\s+\d+\s+(\d+).*?TX:.*?\n\s*(\d+)\s+(\d+)\s+\d+\s+(\d+)", txt, re.S)
+    return None if not m else dict(rx_pkts=int(m.group(2)), rx_drop=int(m.group(3)), tx_pkts=int(m.group(5)), tx_drop=int(m.group(6)))
+print("\nwhere the protected talker's packets went (counter deltas over each phase; flood included where it shares the counter)")
+rows = [("talker sent", None), ("ns UdpSndbufErrors", r"UdpSndbufErrors\s+(\d+)"), ("ns IpOutDiscards", r"IpOutDiscards\s+(\d+)"),
+        ("root IpForwDatagrams", r"IpForwDatagrams\s+(\d+)"), ("root IpOutDiscards", r"IpOutDiscards\s+(\d+)"),
+        ("root IpInDiscards", r"IpInDiscards\s+(\d+)"), ("softnet drops", r"### softnet\n(\d+)")]
+import glob
+for n in [x.split("/")[-1][:-len(".diag-after")] for x in sorted(glob.glob(f"{out}/*.diag-after"))]:
+    b = open(f"{out}/{n}.diag-before").read(); a = open(f"{out}/{n}.diag-after").read()
+    sent = load(f"{out}/{n}.sent.json").get("sent")
+    t = load(f"{out}/{n}.talker.json")
+    print(f"\n  {n}: talker sent {sent}, core received {t.get('received')}")
+    for label, pat in rows[1:]:
+        vb, va = num(b, pat), num(a, pat)
+        if vb is not None and va is not None:
+            print(f"    {label:<24}{va - vb:>10}")
+    for dev in ("qbvt1", "qbvt0"):
+        lb, la = linkstats(b, dev), linkstats(a, dev)
+        if lb and la:
+            print(f"    {dev:<8} tx {la['tx_pkts']-lb['tx_pkts']:>8} tx_drop {la['tx_drop']-lb['tx_drop']:>7}   rx {la['rx_pkts']-lb['rx_pkts']:>8} rx_drop {la['rx_drop']-lb['rx_drop']:>7}")
+    for line in a.split("### nat")[1].split("###")[0].strip().splitlines()[1:]:
+        print("    nat  " + " ".join(line.split()[:2]) + "  " + " ".join(line.split()[2:])[:90])
+    ca = a.split("### conntrack")[1].split("###")[0].strip(); cb = b.split("### conntrack")[1].split("###")[0].strip()
+    if ca:
+        da = dict(x.split("=") for x in ca.split()); db = dict(x.split("=") for x in cb.split())
+        print("    conntrack " + " ".join(f"{k}+{int(da[k])-int(db.get(k,0))}" for k in sorted(da) if int(da[k]) != int(db.get(k, 0))))
 print(f"\nraw files: {out}")
 PY
