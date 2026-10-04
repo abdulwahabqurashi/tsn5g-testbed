@@ -6,7 +6,8 @@ back**. To read one commit in full: `git show <hash>`.
 
 | # | Commit | Title |
 |---|---|---|
-| 10 | *(see `git log -- tools/qbv-live.sh`)* | Stage 6: the Qbv gate measured; SR period 5 ms |
+| 11 | *(see `git log -- ue/tsn5g_ue/net/autorate.py`)* | Auto-rate retuned; cameras followed; first rig switched |
+| 10 | `4492961` | Stage 6: the Qbv gate measured; SR period 5 ms |
 | 9 | `a9bc3c5` | Documentation: deploy guide, lessons, GitHub workflow, secret check |
 | 8 | `ab7c260` | `install.sh viewer`: the video viewer as a service |
 | 7 | `3376c28` | `install.sh core`: build and run the core and gNB from pinned sources |
@@ -19,6 +20,52 @@ back**. To read one commit in full: `git show <hash>`.
 
 Before these, `git log -- ue/` shows the UE application's own 40 commits
 (`cab4d17` … `fe7c587`).
+
+---
+
+## 11 — Auto-rate retuned; cameras followed when they move; first rig switched to the repo
+
+**What**
+- Auto-rate probes gently: `raise_pct` and `interval_s` are now settings
+  (API and config), defaulting to +2 % per 0.25 s with two pings per tick
+  (was +6 % per 0.5 s). The template also lowers the floor from 30 to
+  15 Mbit/s and cuts once the modem holds 15 ms (was 30 ms). `configure()`
+  validates a copy, so a rejected request changes nothing.
+- Cameras: `probe()` and `wait_control_free()` fall back to a broadcast GVCP
+  discovery on the camera's own NIC when the camera doesn't answer at its
+  configured address, follow the address that answers, and log the move.
+  The vendor SDK forces camera 2 onto a new address each time it opens it
+  (seen: .18, .19, .20).
+- `tools/gige-discover.py`: lists the GigE cameras on a NIC whatever their
+  address; `--force-ip` moves one.
+- `camera2-netns.sh`: `SUDO_USER` is unset under systemd (latent bug, first
+  hit by a fresh `up`).
+- `site.env`: `CAM2_IP=169.254.143.19`.
+- The first rig's UE now runs from `/opt/tsn5g` (`install.sh ue`).
+
+**Why** — under an 80 Mbit/s flood the old auto-rate let the protected
+stream's p99 reach 145 ms: each raise overshot the radio, and the excess queued
+in the modem. Measured with `tools/qbv-live.sh`, phase R-auto:
+
+| Auto-rate | loss | p50 | p99 |
+|---|---|---|---|
+| old: +6 %/0.5 s, floor 30, cut at 30 ms | 0 % | 4.5 ms | 145 ms |
+| thresholds only (floor 15, cut at 15 ms) | 0 % | 9.0 ms | 98 ms |
+| **new: + gentle probing** | **0 %** | **3.3 ms** | **56 ms** |
+
+The camera demo afterwards (`demo-run.sh`, 3 off/on pairs): camera 1 kept
+**99.9 %** with the policy on against **79.8 %** off; camera 2 gave way to 11 %,
+the same as before the change.
+
+**Deploy** — `sudo ./install.sh ue`. Settings saved earlier through the UI
+keep their values; set `raise_pct`/`interval_s` with
+`PUT /api/bearer/autorate` if they were saved before this change.
+
+**Verify** — `tools/qbv-live.sh` with `PHASES="R-auto"` gives p99 ≈ 50-60 ms;
+`/opt/tsn5g/tools/demo-run.sh` keeps camera 1 at ≥ 99.8 %.
+
+**Roll back** — `PUT /api/bearer/autorate` with
+`{"raise_pct":6,"interval_s":0.5,"min_mbps":30,"delay_hi_ms":30,"delay_lo_ms":12}`.
 
 ---
 
