@@ -79,7 +79,7 @@ up() {
 
     echo
     echo "ready. camera 2's encoder now runs with:"
-    echo "  sudo ip netns exec $NS sudo -u $SUDO_USER \\"
+    echo "  sudo ip netns exec $NS sudo -u ${SUDO_USER:-${UE_USER:-$(id -un)}} \\"
     echo "      env DISPLAY=\$DISPLAY XAUTHORITY=\$XAUTHORITY \\"
     echo "      ${PREFIX:-/opt/tsn5g}/video/encoder/pathStream1/run.sh \\"
     echo "      camera2-besteffort.json"
