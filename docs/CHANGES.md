@@ -6,7 +6,8 @@ back**. To read one commit in full: `git show <hash>`.
 
 | # | Commit | Title |
 |---|---|---|
-| 11 | *(see `git log -- ue/tsn5g_ue/net/autorate.py`)* | Auto-rate retuned; cameras followed; first rig switched |
+| 12 | *(see `git log -- core/qos`)* | QoS control on the core: profiles, apply, verify |
+| 11 | `cffc73e` | Auto-rate retuned; cameras followed; first rig switched |
 | 10 | `4492961` | Stage 6: the Qbv gate measured; SR period 5 ms |
 | 9 | `a9bc3c5` | Documentation: deploy guide, lessons, GitHub workflow, secret check |
 | 8 | `ab7c260` | `install.sh viewer`: the video viewer as a service |
@@ -20,6 +21,50 @@ back**. To read one commit in full: `git show <hash>`.
 
 Before these, `git log -- ue/` shows the UE application's own 40 commits
 (`cab4d17` … `fe7c587`).
+
+---
+
+## 12 — QoS control on the core: profiles, apply, verify (Stages 4/5)
+
+**What**
+- `core/qos/profiles.json`: named QoS profiles (protected camera 5QI 4 GBR 25/40
+  on UE source port 5202; a smaller GBR variant; video-priority 5QI 6;
+  control-low-latency 5QI 3).
+- `core/qos/qos-ctl.py`:
+  - `profiles`: lists the library;
+  - `show`: MongoDB PCC rules, SMF live flows (`/pdu-info`) and the gNB config's
+    treatment per 5QI, flagging mismatches and 5QIs the gNB has no entry for;
+  - `apply PROFILE… [--rebuild]` / `--clear`: writes the PCC rules (backup
+    first, keys untouched) and optionally has the UE build a new session
+    through its API;
+  - `verify`: captures uplink N3, reads the QFI from each GTP-U packet's PDU
+    Session Container, and reports per UE source port which flow it really
+    used, against what its rule says (PASS/FAIL).
+
+**Why** — Stage 4 aimed to read the QoS rules back from the modem, but the
+RM520N reports none:
+- `AT+C5GQOSRDP` is unsupported;
+- `+CGEQOSRDP` and `+CGTFTRDP` return empty;
+- QMI QoS reports "not supported".
+
+The core has the rules, the live flows and the packets themselves, so control
+and verification live there. Before this, the PCC rule existed only as a
+hand-edited MongoDB record; the source-port trap (LESSONS.md) is what `verify`
+now catches.
+
+**Deploy** — `git pull` on the core; the tool runs from the checkout or from
+`/opt/tsn5g/core/qos/` after `install.sh core`. It needs mongosh and tcpdump
+(both installed with the core).
+
+**Verify**
+```bash
+core/qos/qos-ctl.py show                  # configured and live flows agree
+sudo core/qos/qos-ctl.py verify           # with the cameras running: camera 1 -> 5QI 4, PASS
+```
+
+**Roll back** — restore the previous rules from the newest backup in
+`/var/lib/tsn5g/qos-backups/` (its `slice[].session[].pcc_rule`), or re-run
+`core/open5gs/provision.sh`, which writes the standard camera rule.
 
 ---
 

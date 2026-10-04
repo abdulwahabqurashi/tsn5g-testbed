@@ -1,0 +1,23 @@
+{
+  "_comment": "QoS profiles for core/qos/qos-ctl.py. Each becomes one PCC rule (one QoS flow) on the UE's PDU session. 'port' is the UE's SOURCE port: the rule is written in downlink form ('to assigned PORT') and Open5GS swaps it for the uplink (docs/LESSONS.md). Bit rates in Mbit/s. A 5QI used here should have a qos: entry in the gNB config (RLC mode etc.); qos-ctl.py show warns when it has not.",
+  "camera-protected": {
+    "description": "Protected camera: GBR flow. Camera 1 leaves from this source port (the UE SNATs it).",
+    "5qi": 4, "arp": 5, "gbr_mbps": 25, "mbr_mbps": 40,
+    "port": 5202, "protocols": ["udp", "tcp"]
+  },
+  "camera-protected-small": {
+    "description": "Protected camera at a lower guaranteed rate, for a weaker radio.",
+    "5qi": 4, "arp": 5, "gbr_mbps": 10, "mbr_mbps": 20,
+    "port": 5202, "protocols": ["udp", "tcp"]
+  },
+  "video-priority": {
+    "description": "Non-GBR flow above the default (5QI 6), no guaranteed rate.",
+    "5qi": 6, "arp": 6,
+    "port": 5203, "protocols": ["udp", "tcp"]
+  },
+  "control-low-latency": {
+    "description": "Small, latency-sensitive traffic (5QI 3, GBR 1/2 Mbit/s). Needs a gNB qos entry for 5QI 3.",
+    "5qi": 3, "arp": 3, "gbr_mbps": 1, "mbr_mbps": 2,
+    "port": 5204, "protocols": ["udp"]
+  }
+}
