@@ -92,21 +92,23 @@ def register(router):
         """Turn auto-rate on or off and tune it. Saved to modem.autorate.
 
         Body (all optional): enabled, min_mbps, max_mbps, reserve_mbps,
-        delay_hi_ms, delay_lo_ms. Needs the 'limited' queue policy to act.
+        delay_hi_ms, delay_lo_ms, interval_s, raise_pct. Needs the 'limited'
+        queue policy to act.
         """
         b = getattr(req.ctx.controller, "bearer", None)
         if b is None:
             raise ApiError(503, "bearer manager not available")
         body = req.body
         kw = {k: body.get(k) for k in ("enabled", "min_mbps", "max_mbps",
-                                        "reserve_mbps", "delay_hi_ms", "delay_lo_ms")}
+                                        "reserve_mbps", "delay_hi_ms", "delay_lo_ms",
+                                        "interval_s", "raise_pct")}
         try:
             cfg = b.autorate.configure(**kw)
         except (ValueError, TypeError) as exc:
             raise ApiError(400, str(exc)) from None
         req.ctx.controller.config.update({"modem": {"autorate": {
             k: cfg[k] for k in ("enabled", "min_mbps", "max_mbps", "reserve_mbps",
-                                "delay_hi_ms", "delay_lo_ms")}}})
+                                "delay_hi_ms", "delay_lo_ms", "interval_s", "raise_pct")}}})
         import time as _t
         _t.sleep(1.0)       # let it take the tree, so the reply shows it running
         return b.autorate.status()

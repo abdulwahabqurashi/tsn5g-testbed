@@ -55,7 +55,14 @@ DEFAULTS = {
     # needs the link to be busy — see _run.
     "delay_hi_ms": 30,       # queueing delay that means "the modem is filling"
     "delay_lo_ms": 12,       # below this the queue below the UE is empty
-    "interval_s": 0.5,
+    # How fast it probes for spare capacity. Every raise that overshoots the
+    # radio queues in the modem, where there is no priority, until the next
+    # tick sees the delay: at +6 %/0.5 s that was ~50 ms of queue in front of
+    # the protected lane (p99 ~100-145 ms under flood, 4 Oct). +2 %/0.25 s
+    # overshoots by a fraction of that and still finds the radio's rate in
+    # seconds.
+    "interval_s": 0.25,
+    "raise_pct": 2.0,
     "target": "10.45.0.1",
 }
 
@@ -80,7 +87,7 @@ class AutoRate:
         self._ping = None
         self._rtts = deque(maxlen=50)
         self._lock = threading.Lock()
-        self.history = deque(maxlen=240)        # ~2 min at 0.5 s
+        self.history = deque(maxlen=480)        # ~2 min at 0.25 s
         self._reset_state()
 
     def _reset_state(self):
@@ -90,14 +97,20 @@ class AutoRate:
 
     # -- config ----------------------------------------------------------------
     def configure(self, **kw):
+        new = dict(self.cfg)     # validate a copy: a rejected request changes nothing
         for k, v in kw.items():
             if k not in DEFAULTS or v is None:
                 continue
-            self.cfg[k] = type(DEFAULTS[k])(v) if not isinstance(DEFAULTS[k], bool) else bool(v)
-        if self.cfg["min_mbps"] >= self.cfg["max_mbps"]:
+            new[k] = type(DEFAULTS[k])(v) if not isinstance(DEFAULTS[k], bool) else bool(v)
+        if new["min_mbps"] >= new["max_mbps"]:
             raise ValueError("min_mbps must be below max_mbps")
-        if self.cfg["reserve_mbps"] >= self.cfg["max_mbps"]:
+        if new["reserve_mbps"] >= new["max_mbps"]:
             raise ValueError("reserve_mbps must be below max_mbps")
+        if not 0.1 <= new["interval_s"] <= 5:
+            raise ValueError("interval_s must be between 0.1 and 5")
+        if not 0.5 <= new["raise_pct"] <= 20:
+            raise ValueError("raise_pct must be between 0.5 and 20")
+        self.cfg = new
         self.restart()
         return dict(self.cfg)
 
@@ -153,7 +166,9 @@ class AutoRate:
 
     def _start_ping(self):
         self._ping = subprocess.Popen(
-            ["ping", "-n", "-i", "0.2", "-W", "1", "-I", self.bearer.iface, self.cfg["target"]],
+            # two pings per tick, so each decision sees fresh delay (root may go below 0.2 s)
+            ["ping", "-n", "-i", f"{max(0.05, min(0.2, self.cfg['interval_s'] / 2)):.2f}",
+             "-W", "1", "-I", self.bearer.iface, self.cfg["target"]],
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1)
         threading.Thread(target=self._read_ping, args=(self._ping,), daemon=True,
                          name="autorate-ping").start()
@@ -261,7 +276,7 @@ class AutoRate:
                 new = max(c["min_mbps"], min(rate * 0.9, basis * 0.85))
                 action = "cut"
             elif delta < c["delay_lo_ms"] and load > 0.75 * rate:
-                new = min(c["max_mbps"], rate * 1.06)
+                new = min(c["max_mbps"], rate * (1 + c["raise_pct"] / 100))
                 action = "raise"
             elif load < 0.3 * rate:
                 new = min(c["max_mbps"], rate * 1.01)

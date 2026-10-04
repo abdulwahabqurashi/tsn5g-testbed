@@ -60,11 +60,13 @@ modem:
   autorate:
     enabled: true
     target: ${CORE_BEARER_IP}
-    min_mbps: 30
+    min_mbps: 15               # the radio held only ~25 Mbit/s cleanly on 4 Oct; 30 was too high a floor
     max_mbps: 120
     reserve_mbps: 15
-    delay_hi_ms: 30
-    delay_lo_ms: 12
+    delay_hi_ms: 15            # cut once the modem holds 15 ms (30 let the tail reach ~145 ms)
+    delay_lo_ms: 6
+    interval_s: 0.25           # decide 4x a second ...
+    raise_pct: 2               # ... and probe upwards gently (was +6 % per 0.5 s)
   egress_classes:
     - name: camera1
       proto: udp
