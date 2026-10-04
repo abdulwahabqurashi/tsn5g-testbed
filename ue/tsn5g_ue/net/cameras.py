@@ -47,6 +47,9 @@ logger = logging.getLogger("tsn5g-ue.net.cameras")
 GVCP_PORT = 3956
 #: GVCP DISCOVERY_CMD: magic 0x42, flags ack-required, command 0x0002.
 _DISCOVERY = struct.pack(">BBHHH", 0x42, 0x01, 0x0002, 0x0000, 0x0001)
+#: The same, broadcast, with "broadcast ack allowed" so a camera on another
+#: subnet still answers.
+_DISCOVERY_BCAST = struct.pack(">BBHHH", 0x42, 0x11, 0x0002, 0x0000, 0x0001)
 
 
 class CameraError(RuntimeError):
@@ -160,7 +163,81 @@ def apply_one(entry):
     return {"interface": iface, "address": want, "changed": want not in have}
 
 
+def discover_ip(entry, timeout=1.0):
+    """The address the camera on this entry's NIC answers from right now.
+
+    The configured camera_ip is where the camera *should* be, but it does not
+    always stay there: the vendor SDK forces a camera onto a new address when
+    it opens it, and the camera drops a forced address whenever its link goes
+    down (seen 4 Oct: camera 2 moved between .18 and .19). A broadcast GVCP
+    discovery bound to the camera's own NIC is answered whatever the address.
+    Each NIC carries one camera on this rig, so a single answer is the camera;
+    with several, the configured serial picks one.
+    """
+    src = (entry.get("address") or "").split("/")[0]
+    iface = entry.get("interface")
+    if not src or not iface:
+        return None
+    try:
+        s = _socket(entry)
+    except OSError:
+        return None
+    found = []
+    try:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, iface.encode())
+        s.bind((src, 0))
+        s.settimeout(0.25)
+        s.sendto(_DISCOVERY_BCAST, ("255.255.255.255", GVCP_PORT))
+        import time
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            try:
+                _, peer = s.recvfrom(2048)
+            except socket.timeout:
+                continue
+            if peer[0] not in found:
+                found.append(peer[0])
+    except OSError as exc:
+        logger.debug("%s: discovery failed: %s", entry.get("name"), exc)
+        return None
+    finally:
+        s.close()
+    if len(found) == 1:
+        return found[0]
+    want = entry.get("serial")
+    for ip in found:
+        if want and _read_serial(entry, ip, src) == want:
+            return ip
+    return None
+
+
+def _relocate(entry):
+    """A copy of entry pointing at where the camera answers now, or None."""
+    ip = discover_ip(entry)
+    if not ip:
+        return None
+    if ip != entry.get("camera_ip"):
+        logger.warning("%s: camera answers at %s, not the configured %s "
+                       "(forced address dropped or SDK re-forced it); using %s",
+                       entry.get("name"), ip, entry.get("camera_ip"), ip)
+    return dict(entry, camera_ip=ip)
+
+
 def probe(entry, timeout=1.2):
+    """probe_at() at the configured address, then wherever discovery finds it."""
+    res = probe_at(entry, timeout)
+    if res.get("reachable"):
+        return res
+    moved = _relocate(entry)
+    if moved and moved["camera_ip"] != entry.get("camera_ip"):
+        res = probe_at(moved, timeout)
+        if res.get("reachable"):
+            res["camera_ip_found"] = moved["camera_ip"]
+    return res
+
+
+def probe_at(entry, timeout=1.2):
     """Ask the camera behind this interface who it is.
 
     Unicast GVCP rather than a broadcast sweep: we already know where it should
@@ -263,11 +340,20 @@ def control_free(entry, timeout=1.2):
 
 
 def wait_control_free(entry, timeout=30.0, interval=1.0):
-    """Block until the camera's control channel is free, or timeout."""
+    """Block until the camera's control channel is free, or timeout.
+
+    If the camera stops answering at its configured address, it is looked for
+    on its NIC (see discover_ip) and followed there.
+    """
     import time
     deadline = time.monotonic() + timeout
     while True:
         state = control_free(entry)
+        if state is None:
+            moved = _relocate(entry)
+            if moved and moved["camera_ip"] != entry.get("camera_ip"):
+                entry = moved
+                state = control_free(entry)
         if state:
             return True
         if time.monotonic() >= deadline:
