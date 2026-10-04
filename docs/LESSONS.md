@@ -142,6 +142,40 @@ address.
 agent, and non-interactive shells have none.
 → The polkit rule from `install.sh ue`.
 
+## Time-sensitive uplink (Stage 6, Oct 2026)
+
+**A Qbv gate on the UE does not protect anything on its own.** It limits
+*time*, not bytes, so between protected windows the best-effort traffic still
+fills the modem's buffer, and the protected window opens onto a full queue
+(sandbox: 23-49 % protected loss with a gate alone). Gate plus the priority
+shaper equals the shaper alone for a talker timed to its window, and adds
+1-2 ms for one that is not.
+-> The protection comes from shaping below the radio with strict priority.
+A gate becomes useful only once the radio shares the gate's clock (X410 on
+the grandmaster) or schedules on the same cycle (configured grant).
+
+**Software taprio and its link speed.** taprio sizes each window's byte budget
+from the device's ethtool speed. An IFB reports none and is treated as
+10 Mbit/s (about one packet per window); a veth reports 10 Gbit/s. A `tbf`
+under taprio stalled completely on kernel 6.8.
+
+**The shaper rate is what sets the tail.** Shaped at 40 Mbit/s (about the
+radio's capacity) the protected stream's p99 delay under flood was 84-130 ms:
+whenever the radio dipped below the shaper, packets queued *in the modem*,
+which has no priority. Shaped at 25 Mbit/s: p99 28 ms, better than an idle
+link. Auto-rate exists to keep the shaper below the radio's current capacity.
+Three gNB timers were tried first and did not move the tail (RLC
+t-poll-retransmit 100->40, retx-BSR 80->20); the SR period 20->5 ms did help
+the idle median.
+
+**A fixed SNAT port collides across restarts.** Camera 1 and the test talker
+are NATed to ONE source port (the GBR filter's). A new process on a new local
+port collides with the old conntrack entry, which holds that mapping for 30 s,
+and every packet is dropped (`conntrack -S`: insert_failed). It cost two test
+runs (75 % "loss").
+-> Clear the entries on restart (`cameras-start.sh`, `qbv-live.sh`), or keep
+the local port fixed.
+
 ## Tooling
 
 - `pkill -f "iperf3 -s -p N"` run through ssh also matched (and killed) the

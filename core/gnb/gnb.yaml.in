@@ -54,6 +54,9 @@ cell_cfg:
   # uplink at MCS 21-24 (256-QAM table) failing 35-42% of transmissions
   # whenever the measured SNR rose to ~22 dB; the default OLLA step (0.001)
   # could not correct it in time. Restore by deleting this block.
+  pucch:
+    sr_period_ms: 5          # was 20 (default). A scheduling-request chance every 5 ms TDD frame:
+                             # idle uplink delay median -3-4 ms, p99 38-50 ms instead of 28-102 (Stage 6, 2026-10-04)
   pusch:
     mcs_table: qam64            # was qam256 (default)
     olla_snr_inc_step: 0.01     # was 0.001: react ~10x faster

@@ -6,7 +6,8 @@ back**. To read one commit in full: `git show <hash>`.
 
 | # | Commit | Title |
 |---|---|---|
-| 9 | *(this commit; `git log -1 -- docs/DEPLOY.md`)* | Documentation: deploy guide, lessons, GitHub workflow, secret check |
+| 10 | *(see `git log -- tools/qbv-live.sh`)* | Stage 6: the Qbv gate measured; SR period 5 ms |
+| 9 | `a9bc3c5` | Documentation: deploy guide, lessons, GitHub workflow, secret check |
 | 8 | `ab7c260` | `install.sh viewer`: the video viewer as a service |
 | 7 | `3376c28` | `install.sh core`: build and run the core and gNB from pinned sources |
 | 6 | `aeeb776` | Core scripts and systemd units: the core starts at boot, NAT persists |
@@ -18,6 +19,45 @@ back**. To read one commit in full: `git show <hash>`.
 
 Before these, `git log -- ue/` shows the UE application's own 40 commits
 (`cab4d17` … `fe7c587`).
+
+---
+
+## 10 — Stage 6: the Qbv gate measured; SR period 5 ms in the gNB template
+
+**What**
+- `tools/qbv-sandbox.sh`: gate designs in throwaway namespaces with an
+  emulated radio.
+- `tools/qbv-live.sh`: the real uplink, using the time-stamped talker
+  `tools/qbv-talker.py`.
+  - Phases: no policy; today's priority shaper; 4 ms and 5 ms gates; the
+    daemon's auto-rate policy; a sweep of send phase across the 5 ms TDD frame.
+  - Run a subset with `PHASES=…`.
+  - It prints per-hop counters (namespace, veth, forwarding, NAT, conntrack)
+    for every phase.
+- `core/gnb/gnb.yaml.in`: `cell_cfg.pucch.sr_period_ms: 5` (was the default 20).
+- `ue/scripts/cameras-start.sh`: clears the cameras' conntrack entries on start
+  (a fixed-port NAT collision could black out camera 1 for up to 30 s).
+- LESSONS.md: the Stage 6 findings.
+
+**Why** — see LESSONS.md, "Time-sensitive uplink". Measured on the first rig,
+2026-10-04, against an 80 Mbit/s flood with a 9.6 Mbit/s protected talker on
+the GBR flow:
+
+| Policy | loss | delay variation p50 / p99 |
+|---|---|---|
+| none | 22.7 % | 113 / 374 ms |
+| priority shaper at 40 Mbit/s | 0 % | 5-12 / 84-130 ms |
+| priority shaper at 25 Mbit/s | 0 % | 3-4 / 28 ms |
+| + 4 ms or 5 ms gate | 0 % | no better; timed talker 30-41 ms p50 (clocks not aligned) |
+
+**Deploy** — the gNB change: `sudo SKIP_BUILD=1 ./install.sh core`, or on the
+first rig add the two lines under `cell_cfg:` in `gnb_x410.yaml` and restart
+srsran-gnb. The UE must re-establish its data call afterwards.
+
+**Verify** — `grep sr_period_ms /var/log/tsn5g/gnb.log` shows 5;
+`PHASES="P-baseline B-uni" tools/qbv-live.sh` gives an idle p50 of ~12 ms.
+
+**Roll back** — remove the `pucch:` block and restart the gNB.
 
 ---
 

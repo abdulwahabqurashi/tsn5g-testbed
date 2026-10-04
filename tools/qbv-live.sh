@@ -23,6 +23,8 @@
 #   B-uni/sch   shaper + strict priority (today's policy), uniform / scheduled talker
 #   F-uni/sch   gate video-4ms + shaper
 #   G-sch       gate on the radio's 5 ms TDD frame + shaper, talker on the same 5 ms grid
+#   R-auto      the daemon's real policy: 'limited' queue with auto-rate, talker in
+#               the protected lane (auto-rate gets 10 s under the flood to settle)
 #   S-sweep     no flood, no policy: one packet per 5 ms frame, send phase stepped
 #               through the frame -> where the uplink slots are
 #
@@ -42,7 +44,7 @@ DUR=${DUR:-30}
 SHAPE_MBPS=${SHAPE_MBPS:-40}
 FLOOD_MBPS=${FLOOD_MBPS:-80}
 SWEEP_DUR=${SWEEP_DUR:-40}
-PHASES=${PHASES:-"P-baseline A-none B-uni B-sch F-uni F-sch G-sch S-sweep"}   # e.g. PHASES="P-baseline A-none B-uni"
+PHASES=${PHASES:-"P-baseline A-none B-uni B-sch F-uni F-sch G-sch R-auto S-sweep"}   # e.g. PHASES="P-baseline A-none B-uni"
 OUT=${OUT:-$HOME/qbv-runs/$(date +%Y%m%d-%H%M%S)}
 NS=qbvt; VR=qbvt0; VN=qbvt1; NET=10.201.0
 TPORT=5301; FPORT=5311
@@ -117,8 +119,20 @@ for ((i = ${#RULES[@]} - 1; i >= 0; i--)); do rule add "${RULES[$i]}" || die "ip
 sudo sysctl -qw net.ipv4.ip_forward=1
 
 # hand wwan0's queue to this script: 'shallow' makes auto-rate stand down
-curl -sf -X PUT "$API/api/bearer/queue" -H 'Content-Type: application/json' \
-    -d '{"policy":"shallow","limit":1000}' >/dev/null || die "could not take over the $WWAN queue"
+queue_to_script() {
+    curl -sf -X PUT "$API/api/bearer/queue" -H 'Content-Type: application/json' \
+        -d '{"policy":"shallow","limit":1000}' >/dev/null || die "could not take over the $WWAN queue"
+}
+queue_to_daemon() {   # the policy the daemon had before the test, auto-rate included
+    python3 -c '
+import json, sys, urllib.request
+q = json.loads(open(sys.argv[1]).read())
+body = json.dumps({k: q[k] for k in ("policy", "limit", "be_mbps", "link_mbps")}).encode()
+urllib.request.urlopen(urllib.request.Request(sys.argv[2] + "/api/bearer/queue", data=body,
+    method="PUT", headers={"Content-Type": "application/json"}), timeout=15).read()
+' "$OUT/queue-before.json" "$API" || die "could not hand the queue back to the daemon"
+}
+queue_to_script
 
 # ------------------------------------------------------------------ policies
 taprio_args() {   # cycle_us protected_us guard_us
@@ -134,8 +148,14 @@ set_gate() {      # off | 4ms | 5ms
         5ms) sudo ip netns exec $NS tc qdisc add dev $VN root handle 100: taprio $(taprio_args 5000 1950 400) ;;
     esac 2>&1 | grep -v "Size table" || true
 }
-set_shaper() {    # on | off   (on = today's policy: HTB below the radio, protected strict priority)
+set_shaper() {    # on | off | daemon   (on = HTB at SHAPE_MBPS, protected strict priority)
     rule del "$CLS_RULE"
+    if [ "$1" = daemon ]; then
+        queue_to_daemon
+        rule add "$CLS_RULE"      # the talker joins the daemon's protected lane (1:10)
+        return
+    fi
+    [ "${QUEUE_OWNER:-script}" = daemon ] && queue_to_script
     sudo tc qdisc del dev "$WWAN" root 2>/dev/null
     if [ "$1" = on ]; then
         sudo tc qdisc add dev "$WWAN" root handle 1: htb default 20 r2q 10
@@ -186,6 +206,7 @@ run_phase() {   # name gate shaper mode flood [talker args...]
     local dur=$DUR; [ "$mode" = sweep ] && dur=$SWEEP_DUR
     say "== $name: gate=$gate shaper=$shaper talker=$mode flood=$flood (${dur}s)"
     set_gate "$gate"; set_shaper "$shaper"
+    if [ "$shaper" = daemon ]; then QUEUE_OWNER=daemon; else QUEUE_OWNER=script; fi
     conntrack_reset
     ssh -o BatchMode=yes "$CORE_SSH" "timeout $((dur + 15)) python3 /tmp/qbv-talker.py recv --port $TPORT --duration $((dur + 6)) --out /tmp/qbv-$name.json" >/dev/null &
     local rx=$!
@@ -193,8 +214,9 @@ run_phase() {   # name gate shaper mode flood [talker args...]
     snap "$OUT/$name.diag-before"
     if [ "$flood" = yes ]; then
         ssh -o BatchMode=yes "$CORE_SSH" "iperf3 -s -p $FPORT -1 -D"; sleep 1
-        sudo ip netns exec $NS iperf3 -c "$CORE_IP" -p $FPORT -u -b ${FLOOD_MBPS}M -l 1200 -t $((dur + 2)) -J > "$OUT/$name.flood.json" 2>/dev/null &
-        sleep 1
+        local warm=1; [ "$shaper" = daemon ] && warm=10   # let auto-rate find the radio's rate
+        sudo ip netns exec $NS iperf3 -c "$CORE_IP" -p $FPORT -u -b ${FLOOD_MBPS}M -l 1200 -t $((dur + warm + 1)) -J > "$OUT/$name.flood.json" 2>/dev/null &
+        sleep $warm
     fi
     sudo ip netns exec $NS python3 "$TALKER" send --dst "$CORE_IP" --port $TPORT --sport $TSPORT --mode "$mode" --duration "$dur" "$@" > "$OUT/$name.sent.json"
     wait
@@ -211,6 +233,7 @@ run_phase B-sch      off on  scheduled yes
 run_phase F-uni      4ms on  uniform   yes
 run_phase F-sch      4ms on  scheduled yes
 run_phase G-sch      5ms on  scheduled yes --cycle-us 5000 --burst 5
+run_phase R-auto     off daemon uniform yes
 run_phase S-sweep    off off sweep     no  --cycle-us 5000 --step-us 250 --size 200
 
 # --------------------------------------------------------------------- report
@@ -225,7 +248,7 @@ def load(p):
 print(f"\nshaper {shape} Mbit/s, flood {flood} offered; protected = 9.6 Mbit/s talker on the GBR flow")
 print("delay variation = each packet's one-way delay above the best packet's (ms)\n")
 print(f"{'phase':<12}{'loss %':>8}{'var p50':>9}{'p99':>8}{'max':>8}{'flood Mbit/s':>14}")
-for n in ["P-baseline", "A-none", "B-uni", "B-sch", "F-uni", "F-sch", "G-sch"]:
+for n in ["P-baseline", "A-none", "B-uni", "B-sch", "F-uni", "F-sch", "G-sch", "R-auto"]:
     t = load(f"{out}/{n}.talker.json"); f = load(f"{out}/{n}.flood.json")
     s = (f.get("end") or {}).get("sum")
     fm = f"{s['bits_per_second'] * (1 - s['lost_percent'] / 100) / 1e6:.1f}" if s else "-"
