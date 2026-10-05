@@ -472,11 +472,6 @@ export default defineView({
         queueBody.appendChild(row("Best-effort cap", `${q.be_mbps} Mbit/s`));
         queueBody.appendChild(row("Link", `${q.link_mbps} Mbit/s`));
       }
-      queueBody.appendChild(btnRow(
-        button("Policy off", { title: "shallow: one queue for everything",
-                               onclick: () => apply({ ...current(), policy: "shallow" }) }),
-        button("Policy on", { kind: "primary", title: "limited: protected lane + capped best effort",
-                              onclick: () => apply({ ...current(), policy: "limited" }) })));
       queueBody.appendChild(h("details", { class: "state-detail" },
         h("summary", { text: "Settings" }),
         field("Policy", inputs.policy), hint,

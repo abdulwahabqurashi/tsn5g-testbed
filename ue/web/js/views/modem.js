@@ -187,11 +187,7 @@ export default defineView({
     function paintIdentity(info) {
       clear(idBody);
       const m = info?.modem || {};
-      const q = info?.qmi || {};
       idBody.appendChild(row("Model", m.model || info?.bus?.model, { mono: true }));
-      idBody.appendChild(row("RAT", m.rat));
-      idBody.appendChild(row("Band", m.band));
-      idBody.appendChild(row("Operator", m.operator, { mono: true }));
       // null means nobody has measured it yet, which is not the same as "no".
       // These rendered a flat "not ready" / "no" against a UE that was camped
       // and carrying traffic, because the flags behind them were untouched
@@ -200,17 +196,10 @@ export default defineView({
         ? badge("unknown", "gray")
         : badge(v ? yes : no, v ? "green" : "amber"));
       idBody.appendChild(row("SIM", tri(m.sim_ready, "ready", "not ready")));
-      idBody.appendChild(row("Registered", tri(m.registered, "yes", "no")));
-      idBody.appendChild(row("PDU active", tri(m.pdu_active, "yes", "no")));
       if (m.sim_ready === null || m.sim_ready === undefined) {
         idBody.appendChild(h("p", { class: "hint" },
           "The SIM is only read during a Check, so it stays unknown until you "
-          + "run one. Registration and the PDU session are derived live."));
-      }
-      idBody.appendChild(row("UE address", m.ipv4, { mono: true }));
-      if (q.pdh) {
-        idBody.appendChild(row("QMI handle", `${q.pdh} / cid ${q.cid ?? "—"}`,
-                               { mono: true }));
+          + "run one."));
       }
     }
 

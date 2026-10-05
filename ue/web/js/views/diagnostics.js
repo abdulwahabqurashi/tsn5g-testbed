@@ -59,24 +59,6 @@ export default defineView({
 
     function paintSummary(s) {
       clear(summaryBody);
-      const st = s.status || {};
-      const b = s.bearer || {};
-      const r = s.radio || {};
-      summaryBody.appendChild(h("div", { class: "kpis" },
-        h("div", { class: "kpi" },
-          h("div", { class: "kpi-label", text: "STATE" }),
-          h("div", { class: "kpi-val", text: st.state || "—" })),
-        h("div", { class: "kpi" },
-          h("div", { class: "kpi-label", text: "BEARER" }),
-          h("div", { class: "kpi-val", text: b.ipv4 || "down" })),
-        h("div", { class: "kpi" },
-          h("div", { class: "kpi-label", text: "RAT" }),
-          h("div", { class: "kpi-val", text: r.rat || "—" })),
-        h("div", { class: "kpi" },
-          h("div", { class: "kpi-label", text: "ROUTING" }),
-          h("div", { class: "kpi-val",
-                     text: s.routing?.applied ? "applied" : "none" }))));
-
       const errs = [];
       for (const [k, v] of Object.entries(s)) {
         if (v && typeof v === "object" && v.error) errs.push(`${k}: ${v.error}`);

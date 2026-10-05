@@ -64,8 +64,8 @@ export function latencyCard(view, host, { span = "col12" } = {}) {
     const lostP = pr.reduce((a, r) => a + r.lost, 0);
     const sentP = pr.reduce((a, r) => a + r.n + r.lost, 0);
     body.appendChild(chips(
-      chip(p.series[0], "Camera 1", f(cur.protected?.up_p50)),
-      chip(p.series[3], "Camera 1 p99", f(cur.protected?.up_p99)),
+      chip(p.series[0], "Camera 1"),
+      chip(p.series[3], "Camera 1 p99"),
       chip(p.series[2], "Camera 2", f(cur.best_effort?.up_p50)),
       chip(null, "Camera 1 loss", sentP ? `${((100 * lostP) / sentP).toFixed(2)} %` : "—")));
     if (!pr.length && !be.length) {

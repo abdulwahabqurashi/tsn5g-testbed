@@ -86,10 +86,8 @@ export default defineView({
             : "not streaming", camOk ? "ok" : "warn"),
         topoLink("Ethernet", "", camOk ? "ok" : ""),
         topoNode(icon("device"), "UE", bearer?.ipv4 || "no address", linkUp ? "ok" : "err"),
-        topoLink(ul == null ? "" : `▲ ${ul.toFixed(1)} Mbit/s`, cur.protected?.up_p50 != null
-          ? `${cur.protected.up_p50} ms one-way` : "", linkUp ? "ok" : "err"),
-        topoNode(icon("radio"), "5G radio", sig.rsrp != null ? `RSRP ${sig.rsrp} · SINR ${sig.sinr} dB` : "no reading",
-          radioState),
+        topoLink("5G NR", "", linkUp ? "ok" : "err"),
+        topoNode(icon("radio"), "5G radio", s.status?.modem?.band ? `band ${s.status.modem.band}` : "", radioState),
         topoLink("N3", "", coreOk ? "ok" : ""),
         topoNode(icon("server"), "Core", linkUp ? (lat?.target || "10.45.0.1") : "unreachable",
           coreOk ? "ok" : linkUp ? "warn" : "err"));
@@ -115,11 +113,10 @@ export default defineView({
       const p = palette();
       const { ul, dl } = s.series;
       const now = Date.now();
-      const lastUl = ul.length ? ul[ul.length - 1].v : null;
       const lastDl = dl.length ? dl[dl.length - 1].v : null;
       fill(tputHead, h("div", { class: "head-l" }, h("h3", { text: "5G link throughput" })),
-        chips(chip(p.series[0], "Up", lastUl == null ? "—" : `${lastUl.toFixed(1)} Mbit/s`),
-              chip(p.series[1], "Down", lastDl == null ? "—" : `${lastDl.toFixed(1)} Mbit/s`)));
+        chips(chip(p.series[0], "Up"), chip(p.series[1], "Down",
+              lastDl == null ? "—" : `${lastDl.toFixed(1)} Mbit/s`)));
       clear(tputBody);
       if (!ul.length && !dl.length) {
         tputBody.appendChild(h("div", { class: "empty-chart", text: "Waiting for counters…" }));

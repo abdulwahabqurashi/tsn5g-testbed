@@ -34,7 +34,6 @@ export default defineView({
       h("option", { value: "shell", text: "Shell only" }),
       h("option", { value: "", text: "Everything" }));
     const inspectBody = h("div");
-    const statusBody = h("div");
 
     const history = [];
     let histPos = -1;
@@ -74,8 +73,7 @@ export default defineView({
           + "from what it logged."),
         auditBody),
       card("Request inspector", { span: "col6",
-        hint: "proves a panel is talking to the backend" }, inspectBody),
-      card("Raw status", { span: "col12" }, statusBody)));
+        hint: "proves a panel is talking to the backend" }, inspectBody)));
 
     // ---- AT console --------------------------------------------------------
     function echo(text, cls = "") {
@@ -236,21 +234,12 @@ export default defineView({
         ])));
     }
 
-    // ---- raw status ------------------------------------------------------------
-    function paintStatus(state) {
-      clear(statusBody);
-      statusBody.appendChild(h("pre", { class: "log",
-        text: JSON.stringify(state.status, null, 2) || "no snapshot yet" }));
-    }
-
     view.dom(auditFilter, "change", loadAudit);
 
     await loadAudit();
     paintInspector();
-    paintStatus(view.store.get());
 
     view.interval(() => { loadAudit(); paintInspector(); }, 5000);
-    view.sub((s) => s.status, () => paintStatus(view.store.get()));
 
     input.focus();
   },

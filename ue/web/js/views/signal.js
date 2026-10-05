@@ -47,7 +47,6 @@ export default defineView({
 
     const liveBody = h("div");
     const branchBody = h("div");
-    const cellBody = h("div");
     const chartBody = h("div");
     const staleNote = h("span", { class: "hint" });
 
@@ -57,9 +56,8 @@ export default defineView({
     }, { class: "mini-select", "aria-label": "History window" });
 
     view.root.appendChild(h("div", { class: "grid" },
-      card("Live", { span: "col4" }, liveBody),
-      card("Per antenna branch", { span: "col4" }, branchBody),
-      card("Serving cell", { span: "col4" }, cellBody),
+      card("Live", { span: "col6" }, liveBody),
+      card("Per antenna branch", { span: "col6" }, branchBody),
       h("section", { class: "card col12" },
         h("div", { class: "card-head" },
           h("h3", { text: "History" }),
@@ -135,15 +133,6 @@ export default defineView({
       }
     }
 
-    function paintCell(s) {
-      clear(cellBody);
-      cellBody.appendChild(row("RAT", s?.rat
-        ? badge(s.rat, s.rat.includes("NR5G") ? "green" : "amber") : null));
-      cellBody.appendChild(row("Band", s?.band, { mono: true }));
-      cellBody.appendChild(row("ARFCN", s?.arfcn, { mono: true }));
-      cellBody.appendChild(row("PCI", s?.pci, { mono: true }));
-      cellBody.appendChild(row("Cell ID", s?.cellid, { mono: true }));
-    }
 
     // ---- history ----------------------------------------------------------
     let lastRows = [];
@@ -221,13 +210,11 @@ export default defineView({
     // ---- wiring -----------------------------------------------------------
     view.listen("signal", (sample) => {
       paintLive(sample);
-      paintCell(sample);
     });
 
     try {
       const now = await view.api.signal.now({ signal: view.signal });
       paintLive(now);
-      paintCell(now);
     } catch (err) {
       if (!(err instanceof ApiError && err.isAborted)) {
         liveBody.appendChild(h("p", { class: "muted", text: err.message }));
