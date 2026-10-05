@@ -62,8 +62,10 @@ def sleep_until(t_ns):
 def send(a):
     _tight_timers()
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    if a.sport:
-        s.bind(("0.0.0.0", a.sport))
+    if a.sport or a.bind:
+        # --bind: leave from this address (the UE's bearer address), so policy
+        # routing sends it over the modem without a test namespace
+        s.bind((a.bind or "0.0.0.0", a.sport or 0))
     pad = b"\0" * max(0, a.size - HDR.size)
     cyc = a.cycle_us * 1000
     end = tai_ns() + int(a.duration * 1e9)
@@ -144,8 +146,8 @@ def recv(a):
             for o, dl in zip(offs, delays):
                 by.setdefault(o, []).append(dl)
             res["per_offset_us"] = {
-                str(o): {"n": len(v), "p50": us(pct(sorted(v), 50) - lo),
-                         "p99": us(pct(sorted(v), 99) - lo)}
+                str(o): {"n": len(v), "min": us(min(v) - lo), "p10": us(pct(sorted(v), 10) - lo),
+                         "p50": us(pct(sorted(v), 50) - lo), "p99": us(pct(sorted(v), 99) - lo)}
                 for o, v in sorted(by.items())}
     with open(a.out, "w") as f:
         json.dump(res, f, indent=1)
@@ -159,6 +161,7 @@ def main():
     ps.add_argument("--dst", required=True)
     ps.add_argument("--port", type=int, required=True)
     ps.add_argument("--sport", type=int, default=0, help="source port (5202 = the GBR flow)")
+    ps.add_argument("--bind", default="", help="source address (e.g. the UE's bearer address)")
     ps.add_argument("--mode", choices=["scheduled", "uniform", "sweep"], default="scheduled")
     ps.add_argument("--step-us", type=int, default=250, help="sweep: offset step")
     ps.add_argument("--cycle-us", type=int, default=4000)
