@@ -14,8 +14,18 @@ host's /24, and then nothing reaches it, not even ping. GVCP discovery is a
 broadcast that the camera answers on any address, so this finds it anyway.
 
 --force-ip uses GVCP FORCEIP: the camera takes the address at once but forgets
-it at the next power cycle. A persistent address needs the camera's persistent
-IP registers (SpinView, or the planned static-IP step).
+it at the next power cycle or link-down.
+
+--set-persistent writes the address into the camera's own bootstrap registers
+(GigE Vision: persistent IP 0x064C, mask 0x065C, gateway 0x066C) and turns
+persistent IP on (0x0014 bit "PR"), then forces it so it is live at once. The
+camera then comes back on this address after every power cycle and link-down.
+Use a /24 mask that matches the host NIC: a camera whose mask differs from its
+NIC's is what makes the vendor SDK force a new address when it opens it.
+The camera must not be streaming (stop the encoders first).
+
+  sudo ip netns exec cam2 python3 tools/gige-discover.py --iface enp7s0 \
+       --set-persistent 169.254.143.19 --serial 25170574
 """
 
 import argparse
@@ -104,12 +114,58 @@ def force_ip(iface, cam, ip, mask="255.255.255.0", gw="0.0.0.0"):
         return False
 
 
+# ---- register access (unicast to the camera's current address) -------------
+REG_IFCONFIG = 0x0014       # network interface configuration: bit0 (LSB) persistent, bit1 DHCP, bit2 LLA
+REG_CCP = 0x0A00            # control channel privilege
+REG_PERSIST_IP, REG_PERSIST_MASK, REG_PERSIST_GW = 0x064C, 0x065C, 0x066C
+_req = [100]
+
+
+def _cmd(s, ip, code, payload):
+    _req[0] = (_req[0] % 65000) + 1
+    s.sendto(struct.pack(">BBHHH", 0x42, 0x01, code, len(payload), _req[0]) + payload, (ip, GVCP_PORT))
+    data, _ = s.recvfrom(1024)
+    status = struct.unpack(">H", data[0:2])[0]
+    if status != 0:
+        raise RuntimeError(f"camera refused command 0x{code:04x}: status 0x{status:04x}")
+    return data[8:]
+
+
+def readreg(s, ip, addr):
+    return struct.unpack(">I", _cmd(s, ip, 0x0080, struct.pack(">I", addr))[:4])[0]
+
+
+def writereg(s, ip, addr, value):
+    _cmd(s, ip, 0x0082, struct.pack(">II", addr, value))
+
+
+def set_persistent(iface, cam, ip, mask):
+    s = _sock(iface)
+    s.settimeout(1.5)
+    cur = cam["ip"]
+    writereg(s, cur, REG_CCP, 0x2)                       # exclusive control
+    try:
+        before = readreg(s, cur, REG_IFCONFIG)
+        writereg(s, cur, REG_PERSIST_IP, int(ipaddress.IPv4Address(ip)))
+        writereg(s, cur, REG_PERSIST_MASK, int(ipaddress.IPv4Address(mask)))
+        writereg(s, cur, REG_PERSIST_GW, 0)
+        writereg(s, cur, REG_IFCONFIG, before | 0x1 | 0x4)  # persistent on, keep LLA as the fallback
+        got = (readreg(s, cur, REG_PERSIST_IP), readreg(s, cur, REG_PERSIST_MASK), readreg(s, cur, REG_IFCONFIG))
+    finally:
+        try:
+            writereg(s, cur, REG_CCP, 0x0)                 # release control
+        except Exception:
+            pass
+    return before, got
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--iface", required=True)
     ap.add_argument("--force-ip", help="move the camera to this address (until power cycle)")
     ap.add_argument("--mask", default="255.255.255.0")
-    ap.add_argument("--serial", help="with --force-ip: only the camera with this serial")
+    ap.add_argument("--serial", help="with --force-ip / --set-persistent: only the camera with this serial")
+    ap.add_argument("--set-persistent", metavar="IP", help="store IP (and --mask) in the camera, persistent across power cycles")
     a = ap.parse_args()
 
     cams = discover(a.iface)
@@ -120,6 +176,26 @@ def main():
     for c in cams:
         print(f"{c['serial'] or '?':>10}  {c['ip']:<16} mask {c['mask']:<15} "
               f"({c['address_from']})  {c['maker']} {c['model']}  mac {c['mac']}")
+    if a.set_persistent:
+        targets = [c for c in cams if not a.serial or c["serial"] == a.serial]
+        if len(targets) != 1:
+            print(f"--set-persistent needs exactly one camera; matched {len(targets)} (use --serial)")
+            return 1
+        cam = targets[0]
+        try:
+            before, (pip, pmask, cfg) = set_persistent(a.iface, cam, a.set_persistent, a.mask)
+        except Exception as exc:
+            print(f"could not write the camera's registers: {exc}  (is an encoder still holding it?)")
+            return 1
+        print(f"serial {cam['serial']}: persistent IP {ipaddress.IPv4Address(pip)} mask {ipaddress.IPv4Address(pmask)}; "
+              f"IP config 0x{before:x} -> 0x{cfg:x} ({'persistent ON' if cfg & 1 else 'persistent OFF'})")
+        if cam["ip"] != a.set_persistent or cam["mask"] != a.mask:
+            force_ip(a.iface, cam, a.set_persistent, a.mask)
+            time.sleep(1.0)
+        for c in discover(a.iface):
+            print(f"  now: {c['serial']:>10}  {c['ip']}  mask {c['mask']}")
+        print("It keeps this address across power cycles. Check after the next one with plain --iface.")
+        return 0 if cfg & 1 else 1
     if not a.force_ip:
         return 0
     targets = [c for c in cams if not a.serial or c["serial"] == a.serial]
