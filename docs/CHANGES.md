@@ -6,7 +6,8 @@ back**. To read one commit in full: `git show <hash>`.
 
 | # | Commit | Title |
 |---|---|---|
-| 13 | *(see `git log -- ue/tsn5g_ue/net/latency.py`)* | Live one-way latency; visual pages; cameras keep their address |
+| 14 | *(see `git log -- tools/camera-framerate.py`)* | Cameras at 20 fps, fixed addresses; auto-rate measures only the radio |
+| 13 | `d5e99ad` | Live one-way latency; visual pages; cameras keep their address |
 | 12 | `eada6e8` | QoS control on the core: profiles, apply, verify |
 | 11 | `cffc73e` | Auto-rate retuned; cameras followed; first rig switched |
 | 10 | `4492961` | Stage 6: the Qbv gate measured; SR period 5 ms |
@@ -22,6 +23,48 @@ back**. To read one commit in full: `git show <hash>`.
 
 Before these, `git log -- ue/` shows the UE application's own 40 commits
 (`cab4d17` … `fe7c587`).
+
+---
+
+## 14 — Cameras fixed at 20 fps and fixed addresses; auto-rate measures only the radio
+
+**What**
+- `tools/camera-framerate.py`: reads the camera's own GenICam description
+  over GVCP (formula nodes included) and sets `AcquisitionFrameRate`, saved to
+  User Set 1 as the power-up default. Both cameras: **20 fps**.
+- `tools/gige-discover.py --set-persistent`: both cameras keep their address
+  (/24 mask matching the NIC) across power cycles.
+- Auto-rate:
+  - its ping has its own top-priority HTB class `1:5` (protected becomes
+    prio 1, best effort prio 2);
+  - its thresholds are back to floor 30 / cut at +30 ms;
+  - the gentle probing (+2 %/0.25 s) stays.
+- Auto-rate no longer dies on a missing delay sample.
+
+**Why** — on 5 Oct the cameras ran at 66 fps, not ~18: with no fixed rate,
+the frame rate follows auto-exposure, so the uplink load followed the light.
+Auto-rate's ping rode camera 1's lane, so once camera 1 exceeded the shaped
+rate the ping measured the UE's own queue and auto-rate spiralled to its
+floor. Camera 2 was starved before any flood started. LESSONS.md has both.
+
+**Result** (demo, 5 Oct 17:02, cameras at 20 fps, 50 Mbit/s flood):
+- policy on: camera 1 **100.0 %**, camera 2 3.5 %;
+- policy off: 98.3 % / 98.8 %;
+- protected one-way delay ~15 ms;
+- baseline 100 %/100 %.
+
+**Deploy** — per camera, once, with the encoders stopped (DEPLOY.md §4.1):
+```bash
+sudo python3 tools/camera-framerate.py --iface <CAM_IF> --fps 20 --save
+sudo python3 tools/gige-discover.py --iface <CAM_IF> --set-persistent <CAM_IP> --serial <SERIAL>
+```
+(camera 2 inside `sudo ip netns exec cam2 …`)
+
+**Verify** — `camera-framerate.py --show` gives `AcquisitionResultingFrameRate
+20.00`; after a power cycle the camera keeps 20 fps and its address.
+
+**Roll back** — `--fps` with another value (or re-save the camera's Default
+user set in SpinView); `--set-persistent` with another address.
 
 ---
 

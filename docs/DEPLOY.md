@@ -151,6 +151,18 @@ ssh -L 5902:localhost:5900 <VIEWER_USER>@<CORE_LAN_IP>      # then VNC viewer ->
 - PTP NIC (`PTP_IF`, an Intel I210 or similar with a hardware clock) to the
   TSN switch, if you use PTP.
 
+**Camera settings (once per camera, encoders stopped):** fix the frame rate,
+so the uplink load does not follow the light (without it the rate tracks
+auto-exposure, anywhere from ~18 to 66 fps), and give each camera a fixed
+address with a /24 mask matching its NIC, so the camera SDK never moves it:
+```bash
+sudo python3 tools/camera-framerate.py --iface <CAM1_IF> --fps 20 --save
+sudo python3 tools/gige-discover.py --iface <CAM1_IF> --set-persistent <CAM1_IP> --serial <CAM1_SERIAL>
+# camera 2: the same, inside its namespace once install.sh ue has created it:
+sudo ip netns exec cam2 python3 tools/camera-framerate.py --iface <CAM2_IF> --fps 20 --save
+sudo ip netns exec cam2 python3 tools/gige-discover.py --iface <CAM2_IF> --set-persistent <CAM2_IP> --serial <CAM2_SERIAL>
+```
+
 ### 4.2 Install
 
 ```bash
