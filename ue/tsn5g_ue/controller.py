@@ -133,6 +133,15 @@ class Controller:
     def start(self):
         self.state = C.STATE_IDLE
         self._apply_cameras()
+        # PTP first, on its own. It used to start only as the last step of
+        # connect(), so a boot where the modem or the core was not ready left
+        # the UE unsynchronised with nothing saying so. PTP needs the wired
+        # port to the grandmaster, not the 5G bearer.
+        if self.config.gptp.get("enabled", True):
+            try:
+                self.gptp_start()
+            except Exception as exc:        # noqa: BLE001 — never block startup
+                logger.error("PTP did not start: %s", exc)
         logger.info("controller ready — state=%s", self.state)
         self.resume()
 
@@ -255,7 +264,8 @@ class Controller:
     def connect(self, mode=None, dnn=None, wired_nics=None, role=None, persist=True):
         self.transport_start(mode=mode, dnn=dnn, wired_nics=wired_nics, role=role, persist=persist)
         self.step = C.STEP_GPTP
-        if self.config.gptp.get("enabled", True):
+        # Already running since start-up: leave it locked rather than restart it.
+        if self.config.gptp.get("enabled", True) and not self.gptp.status.get("running"):
             self.gptp_start()
         self.step = C.STEP_DONE
         self.state = C.STATE_RUNNING
