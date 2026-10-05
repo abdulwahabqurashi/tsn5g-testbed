@@ -275,7 +275,7 @@ class AutoRate:
                 basis = load if 0.3 * rate < load < rate else rate
                 new = max(c["min_mbps"], min(rate * 0.9, basis * 0.85))
                 action = "cut"
-            elif delta < c["delay_lo_ms"] and load > 0.75 * rate:
+            elif delta is not None and delta < c["delay_lo_ms"] and load > 0.75 * rate:
                 new = min(c["max_mbps"], rate * (1 + c["raise_pct"] / 100))
                 action = "raise"
             elif load < 0.3 * rate:
