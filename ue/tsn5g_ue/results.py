@@ -144,7 +144,17 @@ def demo(d):
     try:
         text = open(f"{d}/results.txt").read()
     except OSError:
-        return {"phases": [], "summary": {}}
+        # still running: phases.tsv gains a line as each phase finishes
+        done = []
+        try:
+            with open(f"{d}/phases.tsv") as f:
+                for line in f.read().splitlines()[1:]:
+                    c = line.split("\t")
+                    if len(c) >= 4:
+                        done.append({"phase": int(c[0]), "name": c[1], "policy": c[2], "flood": c[3]})
+        except (OSError, ValueError):
+            pass
+        return {"phases": [], "summary": {}, "running": True, "done": done, "total": 7}
     for line in text.splitlines():
         m = _ROW.match(line)
         if m:
@@ -174,6 +184,8 @@ def _headline(kind, data):
         return (f"{len(data['phases'])} phase(s); protected p99 {best['p99_ms']} ms"
                 if best else f"{len(data['phases'])} phase(s)")
     if kind == "demo":
+        if data.get("running"):
+            return f"in progress: {len(data['done'])} of {data['total']} phases done"
         on, off = data["summary"].get("on"), data["summary"].get("off")
         return (f"camera 1: {on['cam1_pct']}% with policy, {off['cam1_pct']}% without"
                 if on and off else f"{len(data['phases'])} phase(s)")

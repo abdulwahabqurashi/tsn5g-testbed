@@ -45,6 +45,7 @@ export default defineView({
     const liveHead = h("div", { class: "card-head" });
     const liveBody = h("div");
     let liveRange = 15;
+    let liveZoom = "all";      // "all" | "protected": scale to camera 1's lane
 
     view.root.appendChild(h("div", { class: "grid" },
       h("section", { class: "card col12" }, liveHead, liveBody),
@@ -163,6 +164,26 @@ export default defineView({
     // ---- demo -----------------------------------------------------------------
     function paintDemo(d) {
       const p = palette();
+      if (d.running) {
+        const done = d.done || [];
+        fill(detailHead, h("h3", { text: "Camera demo" }), badge(`running · ${done.length} of ${d.total} phases`, "blue"));
+        clear(detailBody);
+        detailBody.appendChild(h("div", { class: "health-strip", style: { height: "10px" } },
+          ...Array.from({ length: d.total }, (_, i) => h("span", {
+            class: i < done.length ? (done[i].policy === "limited" ? "hs-ok" : "hs-warn") : "hs-off" }))));
+        detailBody.appendChild(h("p", { class: "hint", style: { "margin-top": "10px" }, text:
+          "Results appear here when the run finishes (about 8 minutes in all). Green = policy on, amber = policy off. "
+          + "Watch the live latency card above meanwhile." }));
+        if (done.length) {
+          detailBody.appendChild(h("table", { class: "tbl" },
+            h("thead", null, h("tr", null, ...["Phase", "Policy", "Flood"].map((t) => h("th", { text: t })))),
+            h("tbody", null, ...done.map((x) => h("tr", null,
+              h("td", { text: `${x.phase} ${x.name}` }),
+              h("td", null, badge(x.policy === "limited" ? "on" : "off", x.policy === "limited" ? "green" : "gray")),
+              h("td", { text: x.flood }))))));
+        }
+        return;
+      }
       const on = d.summary?.on;
       const off = d.summary?.off;
       fill(detailHead, h("h3", { text: "Camera demo" }),
@@ -190,7 +211,7 @@ export default defineView({
         const d = await view.api.results.get(current.kind, current.id, { signal: view.signal });
         ({ drift: paintDrift, qbv: paintQbv, demo: paintDemo }[d.kind] || (() => {}))(d);
         if (refresh) { clearInterval(refresh); refresh = null; }
-        if (d.kind === "drift" && d.verdict === "running") {
+        if ((d.kind === "drift" && d.verdict === "running") || (d.kind === "demo" && d.running)) {
           refresh = view.interval(async () => { await loadList(); await loadRun(); }, 30000);
         }
       } catch (err) {
@@ -238,6 +259,8 @@ export default defineView({
         h("div", { style: { display: "flex", gap: "10px", "align-items": "center" } },
           h("h3", { text: "Live one-way latency, uplink" }), badge(state[0], state[1])),
         h("div", { style: { display: "flex", gap: "10px", "align-items": "center" } },
+          seg([{ value: "all", label: "Both lanes" }, { value: "protected", label: "Zoom: protected" }],
+              liveZoom, (v) => { liveZoom = v; loadLive(); }),
           seg(LIVE_RANGES, liveRange, (v) => { liveRange = v; loadLive(); }),
           button(on ? "Stop" : "Start", { kind: on ? "" : "primary",
             onclick: async () => { await view.api.latency.set({ enabled: !on }, { signal: view.signal }); loadLive(); } })));
@@ -266,9 +289,12 @@ export default defineView({
       }
       const to = Date.now();
       const from = to - liveRange * 60 * 1000;
-      const ser = (rows, k) => rows.map((r) => ({ t: r.t * 1000, v: r[k] }));
-      const all = [...pr, ...be].flatMap((r) => [r.up_p50, r.up_p99]).filter((v) => v != null).sort((a, b) => a - b);
-      const hi = Math.max(10, all[Math.floor(0.98 * (all.length - 1))] || 10);
+      // values above the scale are drawn at its top edge rather than off the chart
+      const ser = (rows, k) => rows.map((r) => ({ t: r.t * 1000, v: r[k] == null ? null : Math.min(r[k], hi) }));
+      const scaleRows = liveZoom === "protected" ? pr : [...pr, ...be];
+      const all = scaleRows.flatMap((r) => [r.up_p50, r.up_p99]).filter((v) => v != null).sort((a, b) => a - b);
+      const hi = Math.max(10, (all[Math.floor(0.98 * (all.length - 1))] || 10) * (liveZoom === "protected" ? 1.15 : 1));
+      const clipped = liveZoom === "protected" && be.some((r) => r.up_p50 > hi);
       liveBody.appendChild(h("div", { style: { "margin-top": "10px" } },
         charts.timeSeries([ser(pr, "up_p50"), ser(pr, "up_p99"), ser(be, "up_p50")], {
           h: 180, colors: [p.series[0], p.series[3], p.series[2]], fill: false, gapMs: 5000,
@@ -276,7 +302,7 @@ export default defineView({
       liveBody.appendChild(healthStrip(pr.map((r) => ({ ...r, t: r.t * 1000 })), from, to,
         (r) => (r.lost ? "err" : r.up_p99 > 100 ? "warn" : "ok")));
       liveBody.appendChild(axisRow(clockTime(from / 1000),
-        `one-way, camera 1's lane vs camera 2's; scale 0 to ${Math.round(hi)} ms; strip: red = loss, amber = p99 over 100 ms`,
+        `one-way, camera 1's lane vs camera 2's; scale 0 to ${Math.round(hi)} ms${clipped ? " (best effort runs off the top)" : ""}; strip: red = loss, amber = p99 over 100 ms`,
         clockTime(to / 1000)));
     }
 
