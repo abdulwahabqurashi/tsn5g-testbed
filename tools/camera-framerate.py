@@ -93,6 +93,100 @@ def discover(iface):
     return found
 
 
+# ---------------------------------------------------------------- formulas
+# GenICam formula language: C-like operators, with = and <> for equality,
+# ** for power, ?: and a few functions. Precedence, lowest first.
+_BIN = [("||",), ("&&",), ("|",), ("^",), ("&",), ("=", "<>"), ("<", ">", "<=", ">="),
+        ("<<", ">>"), ("+", "-"), ("*", "/", "%"), ("**",)]
+_FUNCS = {"SGN": lambda x: (x > 0) - (x < 0), "NEG": lambda x: -x, "ABS": abs,
+          "SQRT": lambda x: x ** 0.5, "TRUNC": lambda x: float(int(x)),
+          "FLOOR": lambda x: float(int(x // 1)), "CEIL": lambda x: float(-int(-x // 1)),
+          "ROUND": lambda x, p=0: round(x, int(p)), "EXP": lambda x: 2.718281828459045 ** x}
+_TOK = re.compile(r"\s*(0x[0-9a-fA-F]+|\d+\.\d*(?:[eE][-+]?\d+)?|\d+(?:[eE][-+]?\d+)?|"
+                  r"[A-Za-z_][A-Za-z0-9_.]*|\*\*|<<|>>|<=|>=|<>|&&|\|\||[-+*/%&|^~!?:(),=<>])")
+
+
+def formula(expr, env, as_float=True):
+    """Evaluate a GenICam formula. Converter/SwissKnife compute in floating
+    point; IntConverter/IntSwissKnife in integers (as_float=False)."""
+    if as_float:
+        env = {k: float(v) for k, v in env.items()}
+    toks = _TOK.findall(expr)
+    pos = [0]
+
+    def peek():
+        return toks[pos[0]] if pos[0] < len(toks) else None
+
+    def take():
+        pos[0] += 1
+        return toks[pos[0] - 1]
+
+    def primary():
+        t = take()
+        if t == "(":
+            v = ternary()
+            take()
+            return v
+        if t in ("-", "~", "!"):
+            v = unary_power()
+            return -v if t == "-" else (~int(v) if t == "~" else float(not v))
+        if t in _FUNCS and peek() == "(":
+            take()
+            args = [ternary()]
+            while peek() == ",":
+                take()
+                args.append(ternary())
+            take()
+            return _FUNCS[t](*args)
+        if t == "PI":
+            return 3.141592653589793
+        if re.match(r"0x", t):
+            return int(t, 16)
+        if re.match(r"\d", t):
+            return float(t) if (as_float or any(c in t for c in ".eE")) else int(t)
+        if t not in env:
+            raise RuntimeError(f"formula uses unknown variable {t}")
+        return env[t]
+
+    def unary_power():
+        v = primary()
+        if peek() == "**":
+            take()
+            v = v ** unary_power()
+        return v
+
+    def binary(level):
+        if level == len(_BIN):
+            return unary_power()
+        v = binary(level + 1)
+        while peek() in _BIN[level]:
+            op = take()
+            r = binary(level + 1)
+            v = {"||": lambda a, b: float(bool(a) or bool(b)), "&&": lambda a, b: float(bool(a) and bool(b)),
+                 "|": lambda a, b: int(a) | int(b), "^": lambda a, b: int(a) ^ int(b),
+                 "&": lambda a, b: int(a) & int(b), "=": lambda a, b: float(a == b),
+                 "<>": lambda a, b: float(a != b), "<": lambda a, b: float(a < b),
+                 ">": lambda a, b: float(a > b), "<=": lambda a, b: float(a <= b),
+                 ">=": lambda a, b: float(a >= b), "<<": lambda a, b: int(a) << int(b),
+                 ">>": lambda a, b: int(a) >> int(b), "+": lambda a, b: a + b,
+                 "-": lambda a, b: a - b, "*": lambda a, b: a * b,
+                 "/": lambda a, b: a / b if isinstance(a, float) or isinstance(b, float) else (a // b if b else 0),
+                 "%": lambda a, b: a % b}[op](v, r)
+        return v
+
+    def ternary():
+        c = binary(0)
+        if peek() == "?":
+            take()
+            a = ternary()
+            take()                                  # ':'
+            b = ternary()
+            return a if c else b
+        return c
+
+    return ternary()
+
+
 # ---------------------------------------------------------------- GenICam XML
 def fetch_xml(cam):
     url = cam.readmem(0x0200, 512).split(b"\0")[0].decode(errors="replace")
@@ -114,7 +208,16 @@ class GenICam:
         for el in root.iter():                      # drop namespaces
             if "}" in el.tag:
                 el.tag = el.tag.split("}", 1)[1]
-        self.nodes = {el.get("Name"): el for el in root.iter() if el.get("Name")}
+        # Feature nodes are the root's children (plus StructEntry inside a StructReg).
+        # EnumEntry and pVariable also carry Name attributes and must not
+        # shadow a feature of the same name.
+        self.nodes = {}
+        for el in list(root):
+            if el.get("Name"):
+                self.nodes[el.get("Name")] = el
+            if el.tag == "StructReg":
+                for se in el.findall("StructEntry"):
+                    self.nodes[se.get("Name")] = se
         self.parent = {c: p for p in root.iter() for c in p}
 
     def _t(self, el, tag):
@@ -143,10 +246,24 @@ class GenICam:
     def kind(self, name):
         return self.nodes[name].tag
 
+    def _vars(self, el, depth):
+        env = {}
+        for v in el.findall("pVariable"):
+            env[v.get("Name")] = self.get(v.text.strip(), depth + 1)
+        for c in el.findall("Constant"):
+            env[c.get("Name")] = float(c.text) if "." in c.text else int(c.text, 0)
+        return env
+
     def get(self, name, depth=0):
         el = self.nodes[name]
-        if depth > 12:
+        if depth > 24:
             raise RuntimeError(f"{name}: node chain too deep")
+        if el.tag in ("Converter", "IntConverter"):
+            env = self._vars(el, depth)
+            env["TO"] = self.get(self._t(el, "pValue"), depth + 1)
+            return formula(self._t(el, "FormulaFrom"), env, as_float=el.tag == "Converter")
+        if el.tag in ("SwissKnife", "IntSwissKnife"):
+            return formula(self._t(el, "Formula"), self._vars(el, depth), as_float=el.tag == "SwissKnife")
         pv = self._t(el, "pValue")
         if el.tag in ("Integer", "Float", "Boolean", "Enumeration", "Command") and pv:
             v = self.get(pv, depth + 1)
@@ -168,13 +285,19 @@ class GenICam:
             addr, length, little = self._reg(el)
             b = self.cam.readmem(addr, length)
             return struct.unpack(("<" if little else ">") + ("f" if length == 4 else "d"), b)[0]
-        if el.tag in ("Converter", "IntConverter", "SwissKnife", "IntSwissKnife"):
-            raise RuntimeError(f"{name} is a {el.tag} (formula): not supported by this tool")
         raise RuntimeError(f"{name}: cannot read a {el.tag}")
 
     def set(self, name, value, depth=0):
         el = self.nodes[name]
         pv = self._t(el, "pValue")
+        if el.tag in ("Converter", "IntConverter"):
+            env = self._vars(el, depth)
+            env["FROM"] = value
+            raw = formula(self._t(el, "FormulaTo"), env, as_float=el.tag == "Converter")
+            target = self.nodes[pv]
+            if target.tag in ("IntReg", "MaskedIntReg", "StructEntry", "Integer", "IntConverter", "IntSwissKnife"):
+                raw = int(round(raw))
+            return self.set(pv, raw, depth + 1)
         if el.tag == "Boolean" and pv:
             on, off = int(self._t(el, "OnValue") or "1", 0), int(self._t(el, "OffValue") or "0", 0)
             return self.set(pv, on if value else off, depth + 1)
