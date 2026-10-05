@@ -23,8 +23,9 @@ import { palette } from "../ui/tokens.js";
 import { badge, button } from "../ui/widgets.js";
 
 const KIND_BADGE = { drift: ["clock drift", "blue"], qbv: ["uplink priority", "green"],
-                     demo: ["camera demo", "amber"], loss: ["uplink loss", "gray"] };
-const TEST_ICON = { demo: "camera", loss: "signal", qbv: "sliders", drift: "clock" };
+                     demo: ["camera demo", "amber"], loss: ["uplink loss", "gray"],
+                     camloss: ["camera loss", "gray"] };
+const TEST_ICON = { demo: "camera", camloss: "check", loss: "signal", qbv: "sliders", drift: "clock" };
 const CAMERA_NOTE = { running: "Uses the cameras", stopped: "Pauses the cameras" };
 
 function when(ts) {
@@ -353,11 +354,33 @@ export default defineView({
         "Read across: A vs B is packet size (fragmentation), B vs C is burstiness, C vs D is the GBR flow." }));
     }
 
+    // ---- camera loss check --------------------------------------------------------
+    function paintCamLoss(d) {
+      const p = palette();
+      const c = d.cameras || [];
+      fill(detailHead, h("h3", { text: "Camera loss check" }),
+        d.running ? badge("running", "blue") : h("span", { class: "hint", text: "sent at the UE vs reached the core, same window" }));
+      clear(detailBody);
+      if (!c.length) {
+        detailBody.appendChild(h("p", { class: "muted", text: d.running ? "Counting…" : "No result in this run." }));
+        return;
+      }
+      detailBody.appendChild(h("div", { class: "kpis", style: { "grid-template-columns": `repeat(${c.length}, minmax(0,1fr))` } },
+        ...c.map((x, i) => kpi(x.camera, `${x.loss_pct} %`, `lost ${x.lost} of ${x.sent} datagrams`,
+          Math.abs(x.loss_pct) < 0.5 ? "var(--green-ink)" : x.loss_pct < 2 ? "var(--amber-ink)" : "var(--red-ink)"))));
+      detailBody.appendChild(h("table", { class: "tbl", style: { "margin-top": "14px" } },
+        h("thead", null, h("tr", null, ...["Camera", "Sent (UE)", "Reached the core", "Delivered"].map((t) => h("th", { text: t })))),
+        h("tbody", null, ...c.map((x, i) => h("tr", null,
+          h("td", { text: x.camera }), h("td", { text: String(x.sent) }), h("td", { text: String(x.received) }),
+          h("td", null, barCell(Math.min(100, (100 * x.received) / Math.max(1, x.sent)), 100, p.series[i],
+            `${(100 - x.loss_pct).toFixed(2)} %`)))))));
+    }
+
     async function loadRun() {
       if (!current) return;
       try {
         const d = await view.api.results.get(current.kind, current.id, { signal: view.signal });
-        ({ drift: paintDrift, qbv: paintQbv, demo: paintDemo, loss: paintLoss }[d.kind] || (() => {}))(d);
+        ({ drift: paintDrift, qbv: paintQbv, demo: paintDemo, loss: paintLoss, camloss: paintCamLoss }[d.kind] || (() => {}))(d);
         if (refresh) { clearInterval(refresh); refresh = null; }
         if ((d.kind === "drift" && d.verdict === "running") || d.running) {
           refresh = view.interval(async () => { await loadList(); await loadRun(); }, 15000);

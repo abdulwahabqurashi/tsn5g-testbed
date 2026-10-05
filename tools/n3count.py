@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Count camera datagrams from the UE in an N3 (GTP-U) capture, inside a time
-window. Usage: n3count.py PCAP T0 T1   (epoch seconds, UE clock ~ core clock).
+window. Usage: UE_IP=a.b.c.d n3count.py PCAP T0 T1   (epoch seconds on the CORE's clock).
 A datagram is counted once: its unfragmented packet or its first fragment.
 Python 3.6-compatible (runs on the core)."""
 import os
 import struct
 import sys
 
-UE = bytes([10, 45, 0, 12])
+UE = bytes(int(x) for x in os.environ.get("UE_IP", "10.45.0.12").split("."))
 PORTS = {int(os.environ.get("CAM1_PORT", 50451)): "camera1",
          int(os.environ.get("CAM2_PORT", 50452)): "camera2"}
 path, t0, t1 = sys.argv[1], float(sys.argv[2]), float(sys.argv[3])

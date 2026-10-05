@@ -94,21 +94,7 @@ restore() {
 trap restore EXIT
 
 # UE clock minus core clock, midpoint of an SSH round trip.
-OFFSET=$(python3 - "$CORE" <<'PY'
-import os, subprocess, sys, time
-user = os.environ.get("TSN5G_AS_USER") if os.geteuid() == 0 else None
-pre = ["runuser", "-u", user, "--"] if user else []
-best = None
-for _ in range(5):
-    a = time.time()
-    c = float(subprocess.check_output(pre + ["ssh", "-o", "BatchMode=yes", sys.argv[1],
-                                             "date +%s.%N"]).decode())
-    b = time.time()
-    if best is None or b - a < best[0]:
-        best = (b - a, (a + b) / 2 - c)
-print(f"{best[1]:.3f}")
-PY
-) || die "could not measure the UE/core clock offset"
+OFFSET=$(core_clock_offset) || die "could not measure the UE/core clock offset"
 echo "UE clock is ${OFFSET}s ahead of the core"
 echo "$OFFSET" > "$OUT/clock-offset.txt"
 

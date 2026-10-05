@@ -6,7 +6,8 @@ back**. To read one commit in full: `git show <hash>`.
 
 | # | Commit | Title |
 |---|---|---|
-| 15 | *(see `git log -- ue/tsn5g_ue/testrun.py`)* | Console revamp: 8 pages, one-click tests |
+| 16 | *(see `git log -- tools/camera-loss-check.sh`)* | One-click tests fixed for real runs; camera loss check on the console |
+| 15 | `ce0ee7e` | Console revamp: 8 pages, one-click tests |
 | 14 | `9576362` | Cameras at 20 fps, fixed addresses; auto-rate measures only the radio |
 | 13 | `d5e99ad` | Live one-way latency; visual pages; cameras keep their address |
 | 12 | `eada6e8` | QoS control on the core: profiles, apply, verify |
@@ -24,6 +25,39 @@ back**. To read one commit in full: `git show <hash>`.
 
 Before these, `git log -- ue/` shows the UE application's own 40 commits
 (`cab4d17` … `fe7c587`).
+
+---
+
+## 16 — One-click tests fixed for real runs; camera loss check on the console
+
+**What**
+- `qbv-live.sh` and `gnb-drift.sh` fetch results from the core with
+  `ssh … cat` instead of `scp`.
+  - From the console, ssh/scp run as the desktop user. That user cannot write
+    into the root-created result folder, so every phase of the first console
+    run of *Uplink priority* said "no talker result".
+- `camera-loss-check.sh`, rewritten:
+  - It slices the core capture with the measured UE/core clock offset. It was
+    comparing two windows 37 s apart.
+  - It takes the UE's current bearer address; it was fixed at `10.45.0.12`.
+  - The capture starts through `core_capture`, with no password prompt.
+  - It is on the Tests page as **Camera loss check** (~1 min, cameras
+    running).
+- `tools/common.sh`: `core_clock_offset`, now shared with `demo-run.sh`.
+- `testrun.py`: after a test, Start is pressed until both cameras send video
+  (up to 3 tries). If video is already flowing, it does not press at all.
+- Auto-rate:
+  - no warning when protection is switched off while it runs;
+  - it removes the old rule that put its ping in the protected lane.
+
+**Deploy** — `sudo ./install.sh ue`.
+
+**Verify**
+- Tests → *Uplink priority* (Quick): the result shows its phases with loss
+  and delay.
+- Tests → *Camera loss check*: both cameras show near 0 % lost.
+
+**Roll back** — `git revert` and `sudo ./install.sh ue`.
 
 ---
 

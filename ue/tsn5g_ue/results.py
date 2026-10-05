@@ -8,6 +8,7 @@ the desktop user and leave one directory per run in that user's home:
   ~/qbv-runs/<…>/                  <phase>.talker.json, <phase>.flood.json, run.log
   ~/demo-runs/<…>/                 results.txt (the table demo-analyse prints)
   ~/radio-loss/<…>/                A..D-*.json, one iperf3 report per variant
+  ~/camera-loss/<…>/               result.txt (sent at the UE vs reached the core)
 
 This module only reads them; testrun.py starts them.
 """
@@ -21,8 +22,8 @@ import time
 
 from . import rig
 
-KINDS = {"drift": "gnb-drift", "qbv": "qbv-runs", "demo": "demo-runs", "loss": "radio-loss"}
-LABEL = {"drift": "Radio clock drift", "qbv": "Qbv / priority uplink test", "demo": "Camera demo", "loss": "Uplink loss"}
+KINDS = {"drift": "gnb-drift", "qbv": "qbv-runs", "demo": "demo-runs", "loss": "radio-loss", "camloss": "camera-loss"}
+LABEL = {"drift": "Radio clock drift", "qbv": "Qbv / priority uplink test", "demo": "Camera demo", "loss": "Uplink loss", "camloss": "Camera loss check"}
 CYCLE_US = 5000
 QBV_PHASES = ["P-baseline", "A-none", "B-uni", "B-sch", "F-uni", "F-sch", "G-sch", "R-auto"]
 QBV_NAMES = {"P-baseline": "Idle radio", "A-none": "Flood, no policy", "B-uni": "Priority",
@@ -193,6 +194,19 @@ def loss(d):
     return {"variants": rows, "running": len(rows) < len(LOSS_NAMES)}
 
 
+_CAM = re.compile(r"(camera\d): sent (\d+), reached the core (\d+), lost (-?\d+) \((-?[\d.]+)%\)")
+
+
+def camloss(d):
+    try:
+        text = open(f"{d}/result.txt").read()
+    except OSError:
+        return {"cameras": [], "running": True}
+    rows = [{"camera": m.group(1), "sent": int(m.group(2)), "received": int(m.group(3)),
+             "lost": int(m.group(4)), "loss_pct": float(m.group(5))} for m in _CAM.finditer(text)]
+    return {"cameras": rows, "running": not rows and "core received" not in text}
+
+
 # ------------------------------------------------------------------ index
 def _headline(kind, data):
     if kind == "drift":
@@ -205,6 +219,10 @@ def _headline(kind, data):
         best = r.get("R-auto") or r.get("B-uni")
         return (f"{len(data['phases'])} phase(s); protected p99 {best['p99_ms']} ms"
                 if best else f"{len(data['phases'])} phase(s)")
+    if kind == "camloss":
+        if not data["cameras"]:
+            return "in progress" if data["running"] else "no result"
+        return " · ".join(f"{c['camera']} {c['loss_pct']}% lost" for c in data["cameras"])
     if kind == "loss":
         ok = [v for v in data["variants"] if "loss_pct" in v]
         if data["running"]:
@@ -219,7 +237,7 @@ def _headline(kind, data):
     return ""
 
 
-PARSE = {"drift": drift, "qbv": qbv, "demo": demo, "loss": loss}
+PARSE = {"drift": drift, "qbv": qbv, "demo": demo, "loss": loss, "camloss": camloss}
 
 
 def list_runs(limit=40):

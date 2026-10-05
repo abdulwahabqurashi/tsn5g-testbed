@@ -153,12 +153,19 @@ class AutoRate:
         self._ping_rule(add=False)
         was_active = self.state.get("active")
         self._reset_state()
-        if was_active:
-            # Put the static rates back so the lanes are what the config says.
+        # Put the static rates back so the lanes are what the config says —
+        # unless the limited tree has just been replaced (protection off),
+        # when there are no classes left to change.
+        if was_active and self.bearer.queue_policy == qdisc.LIMITED:
             self._apply(self.bearer.queue_link_mbps, static=True)
 
     # -- probe -------------------------------------------------------------------
     def _ping_rule(self, add):
+        # Before the probe class existed the ping was classified into the
+        # protected lane; an upgraded rig still carries that rule. Remove it.
+        old = [x.replace("{dev}", self.bearer.iface) for x in _PING_RULE[:-1]] + [qdisc.CLS_PROTECTED]
+        while utils.run(["iptables", old[0], old[1], "-D", *old[2:]], check=False, timeout=10).returncode == 0:
+            pass
         rule = [x.replace("{dev}", self.bearer.iface) for x in _PING_RULE]
         exists = utils.run(["iptables", rule[0], rule[1], "-C", *rule[2:]],
                            check=False, timeout=10).returncode == 0

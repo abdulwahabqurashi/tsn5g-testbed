@@ -50,7 +50,9 @@ for i in $(seq 1 "$SCANS"); do
     python3 "$TOOLS/qbv-talker.py" send --dst "$CORE_IP" --port "$PORT" --bind "$BIND" \
         --mode sweep --cycle-us 5000 --step-us "$STEP_US" --size 100 --duration "$SCAN_S" >/dev/null
     wait
-    if scp -q "$CORE_SSH:/tmp/gnb-drift-$i.json" "$OUT/scan-$i.json"; then
+    # cat over ssh, not scp: see qbv-live.sh (a root-made $OUT from the console)
+    if ssh -o BatchMode=yes "$CORE_SSH" "cat /tmp/gnb-drift-$i.json" > "$OUT/scan-$i.json" 2>/dev/null \
+            && [ -s "$OUT/scan-$i.json" ]; then
         echo "{\"t\": $t0}" > "$OUT/scan-$i.time"
         echo "done"
     else

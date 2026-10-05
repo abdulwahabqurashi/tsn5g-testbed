@@ -221,7 +221,10 @@ run_phase() {   # name gate shaper mode flood [talker args...]
     sudo ip netns exec $NS python3 "$TALKER" send --dst "$CORE_IP" --port $TPORT --sport $TSPORT --mode "$mode" --duration "$dur" "$@" > "$OUT/$name.sent.json"
     wait
     snap "$OUT/$name.diag-after"
-    scp -q "$CORE_SSH:/tmp/qbv-$name.json" "$OUT/$name.talker.json" 2>/dev/null || say "   (no talker result for $name)"
+    # cat over ssh rather than scp: from the console the ssh side runs as the
+    # desktop user, and only the local shell can write into a root-made $OUT.
+    ssh -o BatchMode=yes "$CORE_SSH" "cat /tmp/qbv-$name.json" > "$OUT/$name.talker.json" 2>/dev/null \
+        && [ -s "$OUT/$name.talker.json" ] || { rm -f "$OUT/$name.talker.json"; say "   (no talker result for $name)"; }
     tc -s qdisc show dev "$WWAN" > "$OUT/$name.wwan0-stats"
     sudo ip netns exec $NS tc -s qdisc show dev $VN > "$OUT/$name.gate-stats"
 }

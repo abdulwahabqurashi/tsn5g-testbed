@@ -22,7 +22,8 @@ import { axisRow, chip, chips, topoLink, topoNode } from "../ui/observe.js";
 import { palette } from "../ui/tokens.js";
 import { badge } from "../ui/widgets.js";
 
-const KIND_LABEL = { drift: "Clock drift", qbv: "Uplink priority", demo: "Camera demo", loss: "Uplink loss" };
+const KIND_LABEL = { drift: "Clock drift", qbv: "Uplink priority", demo: "Camera demo", loss: "Uplink loss",
+                     camloss: "Camera loss check" };
 
 function tile(label, value, sub, state = "") {
   return h("div", { class: `tile ${state}` },

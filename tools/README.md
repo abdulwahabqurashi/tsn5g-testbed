@@ -7,7 +7,7 @@ address, the modem interface, ports — comes from `site.env` via `common.sh`.
 | Script | What it answers | Needs |
 |---|---|---|
 | `demo-run.sh` | Does the protected camera keep its frames when the uplink is flooded, with the policy on vs off? (the headline demo) | cameras running, SSH key to the core, tcpdump allowed on the core (CHANGES 15) or its sudo password |
-| `camera-loss-check.sh [s]` | Are datagrams lost between the UE and the core's N3? (UE counters vs a core capture, same instant) | cameras running |
+| `camera-loss-check.sh [s]` | Are datagrams lost between the UE and the core's N3? (UE counters vs a core capture, same instant) | cameras running, a capture allowed on the core (CHANGES 15) |
 | `radio-loss-test.sh` | Raw radio loss for four UDP patterns, no cameras | cameras stopped |
 | `lcp-test.sh 1\|2\|2b\|2c\|3` | Does the modem honour QoS flow priority under congestion? (LCP brief) | cameras stopped |
 | `qbv-live.sh` | Stage 6: does a Qbv gate help on the real uplink? Gate vs today's priority policy, scheduled vs unscheduled talker, plus a scan of the radio's 5 ms TDD frame | cameras stopped, SSH key to the core |

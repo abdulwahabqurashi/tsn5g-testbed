@@ -47,6 +47,13 @@ CATALOG = {
         ],
         "minutes": lambda p: (int(p.get("PHASE", 60)) + 6) * 7 / 60 + 1,
     },
+    "camloss": {
+        "title": "Camera loss check",
+        "summary": "Both cameras as they run now: datagrams sent at the UE vs reached the core, same 30 s.",
+        "script": "camera-loss-check.sh", "kind": "camloss", "cameras": "running", "capture": True,
+        "params": [],
+        "minutes": lambda p: 1,
+    },
     "loss": {
         "title": "Uplink loss",
         "summary": "One camera's rate four ways: packet size, bursts, GBR flow. Finds where loss comes from.",
@@ -122,7 +129,7 @@ def run(test_id, params, ctx, controller):
         rig.encoders("stop", ctx.log)
     elif test["cameras"] == "running" and not cams_were:
         rig.encoders("start", ctx.log, camera_entries=controller.config.cameras, bearer=bearer)
-        rig.press_start(ctx.log, bearer=bearer)
+        _press_start(ctx, bearer)
 
     ctx.step("run", f"{test['title']}: about {minutes:.0f} min")
     started = time.strftime("%Y%m%d-%H%M%S")
@@ -136,9 +143,9 @@ def run(test_id, params, ctx, controller):
     if test["cameras"] == "stopped" and cams_were:
         try:
             rig.encoders("start", ctx.log, camera_entries=controller.config.cameras, bearer=bearer)
-            rig.press_start(ctx.log, bearer=bearer)
+            _press_start(ctx, bearer)
         except Exception as exc:                        # noqa: BLE001 — report, the run itself is done
-            ctx.log(f"cameras did not come back by themselves: {exc} — use Cameras → Start")
+            ctx.log(f"cameras did not come back by themselves: {exc} — use Cameras → Press Start")
 
     run_id = _newest(test["kind"], started)
     ctx.check_cancel()
@@ -146,6 +153,24 @@ def run(test_id, params, ctx, controller):
         raise RuntimeError(next((l for l in reversed(tail) if l.startswith("error")), None)
                            or (tail[-1] if tail else f"exit {rc}"))
     return {"test": test_id, "kind": test["kind"], "run_id": run_id, "tail": tail[-12:]}
+
+
+def _press_start(ctx, bearer, tries=3):
+    """Press Start until both cameras send video. An encoder window that has
+    only just opened can miss the first click, and a camera that moved
+    address takes a few seconds longer to answer."""
+    for n in range(1, tries + 1):
+        flow = rig._streams_flowing(bearer)            # noqa: SLF001
+        if flow and all(flow.values()):
+            ctx.log("video flowing: " + ", ".join(f"{k} {v} datagrams/s" for k, v in flow.items()))
+            return flow
+        try:
+            return rig.press_start(ctx.log, bearer=bearer)
+        except rig.RigError as exc:
+            if n == tries:
+                raise
+            ctx.log(f"{exc}; pressing Start again in 5 s ({n}/{tries - 1})")
+            time.sleep(5)
 
 
 def _stream(cmd, env, ctx, minutes):

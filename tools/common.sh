@@ -47,3 +47,23 @@ core_capture() {
     sleep 2
     ssh -o BatchMode=yes "$CORE_SSH" "test -e $pcap" || { echo "error: the capture did not start on the core" >&2; return 1; }
 }
+
+# core_clock_offset: UE clock minus core clock in seconds, from the fastest of
+# five SSH round trips. PTP keeps the UE on TAI with no UTC offset, so this is
+# ~37 s; anything compared against a core capture must subtract it.
+core_clock_offset() {
+    python3 - "$CORE_SSH" <<'PY'
+import os, subprocess, sys, time
+user = os.environ.get("TSN5G_AS_USER") if os.geteuid() == 0 else None
+pre = ["runuser", "-u", user, "--"] if user else []
+best = None
+for _ in range(5):
+    a = time.time()
+    c = float(subprocess.check_output(pre + ["ssh", "-o", "BatchMode=yes", sys.argv[1],
+                                             "date +%s.%N"]).decode())
+    b = time.time()
+    if best is None or b - a < best[0]:
+        best = (b - a, (a + b) / 2 - c)
+print(f"{best[1]:.3f}")
+PY
+}
