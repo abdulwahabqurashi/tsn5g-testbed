@@ -6,7 +6,8 @@ back**. To read one commit in full: `git show <hash>`.
 
 | # | Commit | Title |
 |---|---|---|
-| 12 | *(see `git log -- core/qos`)* | QoS control on the core: profiles, apply, verify |
+| 13 | *(see `git log -- ue/tsn5g_ue/net/latency.py`)* | Live one-way latency; visual pages; cameras keep their address |
+| 12 | `eada6e8` | QoS control on the core: profiles, apply, verify |
 | 11 | `cffc73e` | Auto-rate retuned; cameras followed; first rig switched |
 | 10 | `4492961` | Stage 6: the Qbv gate measured; SR period 5 ms |
 | 9 | `a9bc3c5` | Documentation: deploy guide, lessons, GitHub workflow, secret check |
@@ -21,6 +22,60 @@ back**. To read one commit in full: `git show <hash>`.
 
 Before these, `git log -- ue/` shows the UE application's own 40 commits
 (`cab4d17` … `fe7c587`).
+
+---
+
+## 13 — Live one-way latency; visual Time Sync and Tests pages; cameras keep their address
+
+**What**
+- **One-way latency probe** (`ue/tsn5g_ue/net/latency.py`): 20 small packets a
+  second in each camera lane.
+  - **Protected lane:** sent from `GBR_SOURCE_PORT` into HTB class 1:10, so
+    the same GBR flow and the same priority as camera 1.
+  - **Best-effort lane:** the default flow, like camera 2.
+  - `core/scripts/latency-reflector.py` stamps each probe on the core and
+    sends it back. Both system clocks are PTP-disciplined to UTC, so the UE
+    gets real one-way delay in each direction.
+  - Per-second statistics kept for an hour; API `GET/PUT /api/latency`,
+    `GET /api/latency/history`.
+  - Core unit `tsn5g-latency-reflector.service` (part of `install.sh core`).
+- **Tests page** (Testing → Tests):
+  - a live latency card: protected vs best-effort uplink, median and p99,
+    downlink, loss, and a health strip;
+  - the saved runs: drift as a waterfall heatmap, the QoS test, the camera demo.
+- **Time Sync page** redrawn, UniFi-style:
+  - the clock path with a colour-coded offset on each link;
+  - four big numbers;
+  - the health chart with a lock strip;
+  - the events.
+
+  Daemon PTP history: `/api/ptp/history`.
+- **`tools/gige-discover.py --set-persistent`** stores each camera's address
+  and a /24 mask in the camera, so the vendor SDK stops moving camera 2.
+
+**Why** — both clocks are now on PTP, so latency can be shown as one-way
+delay per lane rather than delay variation. Camera 2 had moved between three
+addresses in one day.
+
+**Deploy**
+```bash
+sudo ./install.sh ue                                            # UE: new code and pages
+# core: start the reflector (or install.sh core installs the unit)
+python3 ~/tsn5g-testbed/core/scripts/latency-reflector.py &
+# cameras, once, with the encoders stopped:
+sudo systemctl stop tsn5g-cameras
+sudo ip netns exec cam2 python3 tools/gige-discover.py --iface enp7s0 --set-persistent 169.254.143.19 --serial 25170574
+sudo python3 tools/gige-discover.py --iface enp8s0 --set-persistent 169.254.144.18 --serial 25170575
+sudo systemctl start tsn5g-cameras
+```
+
+**Verify** — Tests shows "live" with protected median of a few ms and 0 %
+loss. After the cameras restart, `journalctl -u tsn5g-cameras` has no
+"camera answers at …" line.
+
+**Roll back** — `PUT /api/latency {"enabled": false}`; the persistent
+camera address is undone with SpinView or by re-running `--set-persistent`
+with another address.
 
 ---
 

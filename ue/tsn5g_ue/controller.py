@@ -28,6 +28,7 @@ from .modem.qmi import QmiClient
 from .modem.radio import RadioControl
 from .modem.signal import SignalPoller
 from .net.bearer import BearerManager
+from .net.latency import LatencyProbe
 from .net.routing import RoutingManager
 from .perf.dummy import LoadGenerator
 from .perf.iperf import IperfRunner
@@ -82,6 +83,9 @@ class Controller:
         # The UE address changes on every data call, so policy routing has to
         # be put back afterwards or it silently stops matching.
         self.bearer.on_change = self._on_bearer_change
+        # One-way latency in the camera lanes, against a reflector on the core.
+        self.latency = LatencyProbe(self.bearer, config.as_dict().get("latency"),
+                                    target=rig.CORE_IP, gbr_sport=rig.GBR_SOURCE_PORT)
         self.identity = None
         self.transport = None
         # Config first; if the operator has not listed any NICs, ask the
@@ -142,6 +146,10 @@ class Controller:
                 self.gptp_start()
             except Exception as exc:        # noqa: BLE001 — never block startup
                 logger.error("PTP did not start: %s", exc)
+        try:
+            self.latency.start()
+        except Exception as exc:            # noqa: BLE001 — never block startup
+            logger.error("latency probe did not start: %s", exc)
         logger.info("controller ready — state=%s", self.state)
         self.resume()
 

@@ -12,9 +12,11 @@ import { defineView } from "../core/component.js";
 import { clear, fill, h } from "../core/dom.js";
 import { clockTime } from "../core/format.js";
 import * as charts from "../ui/charts.js";
-import { barCell, chip, chips, heatmap, heatScale } from "../ui/observe.js";
+import { axisRow, barCell, chip, chips, healthStrip, heatmap, heatScale, seg } from "../ui/observe.js";
 import { palette } from "../ui/tokens.js";
-import { badge } from "../ui/widgets.js";
+import { badge, button } from "../ui/widgets.js";
+
+const LIVE_RANGES = [{ value: 5, label: "5 min" }, { value: 15, label: "15 min" }, { value: 60, label: "1 h" }];
 
 const KIND_BADGE = { drift: ["clock drift", "blue"], qbv: ["uplink QoS", "green"], demo: ["camera demo", "amber"] };
 
@@ -40,8 +42,12 @@ export default defineView({
     let runs = [];
     let current = null;     // {kind, id}
     let refresh = null;
+    const liveHead = h("div", { class: "card-head" });
+    const liveBody = h("div");
+    let liveRange = 15;
 
     view.root.appendChild(h("div", { class: "grid" },
+      h("section", { class: "card col12" }, liveHead, liveBody),
       h("section", { class: "card col4" },
         h("div", { class: "card-head" }, h("h3", { text: "Runs" }),
           h("span", { class: "hint", text: "newest first" })),
@@ -207,6 +213,75 @@ export default defineView({
       paintList();
     }
 
+    // ---- live one-way latency ---------------------------------------------------
+    async function loadLive() {
+      let st; let hist;
+      try {
+        [st, hist] = await Promise.all([view.api.latency.status({ signal: view.signal }),
+                                        view.api.latency.history(liveRange, { signal: view.signal })]);
+      } catch (err) {
+        if (!(err instanceof ApiError && err.isAborted)) {
+          fill(liveHead, h("h3", { text: "Live one-way latency" }));
+          fill(liveBody, h("p", { class: "muted", text: err.message }));
+        }
+        return;
+      }
+      paintLive(st, hist);
+    }
+
+    function paintLive(st, hist) {
+      const p = palette();
+      const on = st.config?.enabled;
+      const state = !on ? ["off", "gray"] : !st.bound_to ? ["bearer down", "amber"]
+        : !st.reflector ? ["no reply from the core", "red"] : ["live", "green"];
+      fill(liveHead,
+        h("div", { style: { display: "flex", gap: "10px", "align-items": "center" } },
+          h("h3", { text: "Live one-way latency, uplink" }), badge(state[0], state[1])),
+        h("div", { style: { display: "flex", gap: "10px", "align-items": "center" } },
+          seg(LIVE_RANGES, liveRange, (v) => { liveRange = v; loadLive(); }),
+          button(on ? "Stop" : "Start", { kind: on ? "" : "primary",
+            onclick: async () => { await view.api.latency.set({ enabled: !on }, { signal: view.signal }); loadLive(); } })));
+      clear(liveBody);
+      if (on && st.bound_to && !st.reflector) {
+        liveBody.appendChild(h("p", { class: "hint", text:
+          "No replies yet. The core must run the reflector: sudo systemctl start tsn5g-latency-reflector "
+          + "(or python3 ~/tsn5g-testbed/core/scripts/latency-reflector.py)." }));
+      }
+      const pr = hist.protected || [];
+      const be = hist.best_effort || [];
+      const cur = st.current || {};
+      const f = (v) => (v == null ? "—" : `${v} ms`);
+      const lostP = pr.reduce((a, r) => a + r.lost, 0);
+      const sentP = pr.reduce((a, r) => a + r.n + r.lost, 0);
+      liveBody.appendChild(chips(
+        chip(p.series[0], "Protected, median", f(cur.protected?.up_p50)),
+        chip(p.series[3], "Protected, p99", f(cur.protected?.up_p99)),
+        chip(p.series[2], "Best effort, median", f(cur.best_effort?.up_p50)),
+        chip(null, "Downlink, median", f(cur.protected?.down_p50)),
+        chip(null, "Protected loss", sentP ? `${((100 * lostP) / sentP).toFixed(2)} %` : "—")));
+      if (!pr.length && !be.length) {
+        liveBody.appendChild(h("p", { class: "muted", style: { "margin-top": "10px" },
+          text: "No samples in this window yet." }));
+        return;
+      }
+      const to = Date.now();
+      const from = to - liveRange * 60 * 1000;
+      const ser = (rows, k) => rows.map((r) => ({ t: r.t * 1000, v: r[k] }));
+      const all = [...pr, ...be].flatMap((r) => [r.up_p50, r.up_p99]).filter((v) => v != null).sort((a, b) => a - b);
+      const hi = Math.max(10, all[Math.floor(0.98 * (all.length - 1))] || 10);
+      liveBody.appendChild(h("div", { style: { "margin-top": "10px" } },
+        charts.timeSeries([ser(pr, "up_p50"), ser(pr, "up_p99"), ser(be, "up_p50")], {
+          h: 180, colors: [p.series[0], p.series[3], p.series[2]], fill: false, gapMs: 5000,
+          min: 0, max: hi, from, to })));
+      liveBody.appendChild(healthStrip(pr.map((r) => ({ ...r, t: r.t * 1000 })), from, to,
+        (r) => (r.lost ? "err" : r.up_p99 > 100 ? "warn" : "ok")));
+      liveBody.appendChild(axisRow(clockTime(from / 1000),
+        `one-way, camera 1's lane vs camera 2's; scale 0 to ${Math.round(hi)} ms; strip: red = loss, amber = p99 over 100 ms`,
+        clockTime(to / 1000)));
+    }
+
+    await loadLive();
+    view.interval(loadLive, 3000);
     await loadList();
     await loadRun();
   },

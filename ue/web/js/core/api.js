@@ -210,6 +210,12 @@ export function createApi({ base = "", timeout = 8000, fetchImpl, onCall } = {})
       setup: (body, o) => POST("/api/ptp/setup", body, { ...o, timeout: 15000 }),
     },
 
+    latency: {
+      status: (o) => GET("/api/latency", o),
+      history: (minutes, o) => GET("/api/latency/history", { ...o, query: { minutes } }),
+      set: (body, o) => PUT("/api/latency", body, o),
+    },
+
     results: {
       list: (o) => GET("/api/results", o),
       get: (kind, id, o) => GET(`/api/results/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`, o),

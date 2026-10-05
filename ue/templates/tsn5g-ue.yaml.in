@@ -159,6 +159,12 @@ gptp:
 # enabled stays false until the cable is in; turning it on before that leaves
 # ptp4l free-running on its own clock, which looks like success.
 # ---------------------------------------------------------------------------
+# One-way latency probe in the camera lanes (net/latency.py), answered by
+# core/scripts/latency-reflector.py on the core. ~20 kbit/s per lane.
+latency:
+  enabled: true
+  rate_hz: 20
+  port: 5310
 ptp:
   enabled: true
   profile: ${PTP_PROFILE}

@@ -1,0 +1,16 @@
+# Rendered from core/systemd/tsn5g-latency-reflector.service.in by install.sh core
+# Answers the UE's one-way latency probe (UDP ${CORE_BEARER_IP}:5310); see
+# ue/tsn5g_ue/net/latency.py. Needs the core's system clock on PTP-disciplined UTC.
+[Unit]
+Description=TSN-5G latency reflector for the UE's one-way latency probe
+After=network-online.target tsn5g-core-net.service
+
+[Service]
+Type=simple
+User=${CORE_USER}
+ExecStart=/usr/bin/python3 ${PREFIX}/core/scripts/latency-reflector.py --port 5310
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
