@@ -40,26 +40,52 @@ class Cam:
         self.s.settimeout(1.5)
 
     def _cmd(self, code, payload, tries=3):
-        for _ in range(tries):
+        """Send one GVCP command and return the ack's payload.
+
+        A camera doing something slow (saving a user set to flash) first sends
+        PENDING_ACK (0x0089, carrying how long to wait), then the real ack.
+        Treating the pending one as the answer read back empty data as zeros.
+        Status BUSY (0x8007) is retried after a pause."""
+        for attempt in range(tries + 5):
             _req[0] = (_req[0] % 65000) + 1
-            self.s.sendto(struct.pack(">BBHHH", 0x42, 0x01, code, len(payload), _req[0]) + payload,
+            rid = _req[0]
+            self.s.sendto(struct.pack(">BBHHH", 0x42, 0x01, code, len(payload), rid) + payload,
                           (self.ip, GVCP))
-            try:
-                data, _ = self.s.recvfrom(2048)
-            except socket.timeout:
-                continue
-            st = struct.unpack(">H", data[:2])[0]
-            if st != 0:
-                raise RuntimeError(f"camera refused 0x{code:04x}: status 0x{st:04x}")
-            return data[8:]
-        raise RuntimeError(f"no answer from {self.ip}")
+            deadline = time.monotonic() + 1.5
+            while time.monotonic() < deadline:
+                try:
+                    self.s.settimeout(max(0.05, deadline - time.monotonic()))
+                    data, _ = self.s.recvfrom(2048)
+                except socket.timeout:
+                    break
+                if len(data) < 8:
+                    continue
+                st, ack, length, ack_id = struct.unpack(">HHHH", data[:8])
+                if ack_id != rid:
+                    continue                         # a late reply to an earlier request
+                if ack == 0x0089:                    # PENDING_ACK: wait as long as it says
+                    wait_ms = struct.unpack(">HH", data[8:12])[1] if len(data) >= 12 else 1000
+                    deadline = time.monotonic() + wait_ms / 1000 + 1.0
+                    continue
+                if st == 0x8007:                     # BUSY
+                    time.sleep(0.5)
+                    break
+                if st != 0:
+                    raise RuntimeError(f"camera refused 0x{code:04x}: status 0x{st:04x}")
+                if ack != code + 1:
+                    continue
+                return data[8:8 + length]
+        raise RuntimeError(f"no answer from {self.ip} to 0x{code:04x}")
 
     def readmem(self, addr, n):
         out = b""
         while n > 0:
             c = min(512, n)
             c4 = (c + 3) & ~3
-            out += self._cmd(0x0084, struct.pack(">IHH", addr, 0, c4))[4:4 + c]
+            got = self._cmd(0x0084, struct.pack(">IHH", addr, 0, c4))[4:4 + c]
+            if len(got) != c:
+                raise RuntimeError(f"short read at 0x{addr:x}: {len(got)} of {c} bytes")
+            out += got
             addr += c
             n -= c
         return out
@@ -392,7 +418,7 @@ def main():
                     raise RuntimeError(f"camera has no {n}: cannot save")
             g.set("UserSetSelector", "UserSet1")
             g.set("UserSetSave", 1)
-            time.sleep(1.0)
+            time.sleep(3.0)                          # flash write; the camera is busy meanwhile
             default = "UserSetDefault" if g.kind("UserSetDefault") == "Enumeration" else None
             if default:
                 g.set("UserSetDefault", "UserSet1")
