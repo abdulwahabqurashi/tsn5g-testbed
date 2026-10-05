@@ -15,8 +15,11 @@ How
 ---
 Delay-based, the approach CAKE-autorate uses on LTE. A ping to the core every
 200 ms measures how much is queued *below* the UE: when the modem's buffer
-fills, the round trip grows. The pings are classified into the protected lane,
-so the UE's own (deliberately full) best-effort queue does not add to them.
+fills, the round trip grows. The pings have their own top-priority class
+(qdisc.CLS_PROBE, prio 0, above both lanes), so no queue on the UE adds to
+them. They used to ride the protected lane; once camera 1 alone exceeded the
+shaped rate the ping measured the UE's own queue and auto-rate spiralled to
+its floor (5 Oct).
 
 Every tick:
   * delay well above the baseline   -> the modem is queueing: cut the rate
@@ -68,7 +71,7 @@ DEFAULTS = {
 
 _PING_RULE = ["-t", "mangle", "POSTROUTING", "-o", "{dev}", "-p", "icmp",
               "--icmp-type", "echo-request", "-j", "CLASSIFY",
-              "--set-class", qdisc.CLS_PROTECTED]
+              "--set-class", qdisc.CLS_PROBE]
 
 
 class AutoRate:
@@ -204,10 +207,10 @@ class AutoRate:
              "htb", "rate", mb(rate), "ceil", mb(rate), "quantum", "1400"),
             ("class", "change", "dev", dev, "parent", qdisc.CLS_ROOT, "classid",
              qdisc.CLS_PROTECTED, "htb", "rate", mb(prot), "ceil", mb(rate),
-             "prio", "0", "quantum", "1400"),
+             "prio", "1", "quantum", "1400"),
             ("class", "change", "dev", dev, "parent", qdisc.CLS_ROOT, "classid",
              qdisc.CLS_BEST_EFFORT, "htb", "rate", mb(be), "ceil", mb(be),
-             "prio", "1", "quantum", "1400"),
+             "prio", "2", "quantum", "1400"),
         ]
         for st in steps:
             proc = utils.tc(*st, check=False)

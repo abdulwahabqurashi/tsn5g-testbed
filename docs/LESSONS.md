@@ -176,6 +176,13 @@ running; with reserve 15 that left best effort 1 Mbit/s, and camera 2 was
 starved (5 Oct demo). The gentle probing (+2 %/0.25 s) is kept; the thresholds
 went back to floor 30, cut at +30 ms.
 
+**Auto-rate's own ping must not queue on the UE.** It rode camera 1's
+protected lane. When the cameras went to 66 fps (~16 Mbit/s each, frame rate
+follows auto-exposure, so it changes with the light), camera 1 alone exceeded
+the shaped rate, the ping waited behind it on the UE (70-150 ms), auto-rate read
+that as the modem filling and cut to its floor, and stayed there. The ping now
+has its own top-priority HTB class (1:5) above both lanes.
+
 **A fixed SNAT port collides across restarts.** Camera 1 and the test talker
 are NATed to ONE source port (the GBR filter's). A new process on a new local
 port collides with the old conntrack entry, which holds that mapping for 30 s,

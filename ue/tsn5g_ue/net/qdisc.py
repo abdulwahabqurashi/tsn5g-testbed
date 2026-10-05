@@ -65,6 +65,11 @@ DEFAULT_LIMIT = 20
 CLS_ROOT = "1:1"
 CLS_PROTECTED = "1:10"
 CLS_BEST_EFFORT = "1:20"
+#: Auto-rate's delay probe, above both lanes. Its ping must never wait behind
+#: camera traffic on the UE: if it rides the protected lane and camera 1 alone
+#: exceeds the shaped rate, the ping measures the UE's own queue, auto-rate
+#: reads that as the modem filling, cuts, and spirals to its floor (5 Oct).
+CLS_PROBE = "1:5"
 
 #: Default cap on the best-effort class, Mbit/s, and the link rate HTB sizes
 #: the tree against. The link figure is the *loaded* median measured on this
@@ -225,15 +230,22 @@ def _apply_limited(dev, limit, be_mbps, link_mbps):
         # call. A warning that is always there is a warning nobody reads.
         ("class", "replace", "dev", dev, "parent", "1:", "classid", CLS_ROOT,
          "htb", "rate", _mbit(link), "ceil", _mbit(link), "quantum", "1400"),
+        # A tiny guaranteed class for the delay probe, served first. Pings are
+        # far below 1 Mbit/s, so they always send under their own rate.
         ("class", "replace", "dev", dev, "parent", CLS_ROOT,
-         "classid", CLS_PROTECTED, "htb", "rate", _mbit(protected),
+         "classid", CLS_PROBE, "htb", "rate", "1mbit",
          "ceil", _mbit(link), "prio", "0", "quantum", "1400"),
         ("class", "replace", "dev", dev, "parent", CLS_ROOT,
+         "classid", CLS_PROTECTED, "htb", "rate", _mbit(protected),
+         "ceil", _mbit(link), "prio", "1", "quantum", "1400"),
+        ("class", "replace", "dev", dev, "parent", CLS_ROOT,
          "classid", CLS_BEST_EFFORT, "htb", "rate", _mbit(be),
-         "ceil", _mbit(be), "prio", "1", "quantum", "1400"),
+         "ceil", _mbit(be), "prio", "2", "quantum", "1400"),
         # The same shallow FIFO under each leaf, for the same reason it is the
         # whole policy in `shallow`: a deep leaf would re-pool what HTB just
         # separated.
+        ("qdisc", "replace", "dev", dev, "parent", CLS_PROBE,
+         "pfifo", "limit", "32"),
         ("qdisc", "replace", "dev", dev, "parent", CLS_PROTECTED,
          "pfifo", "limit", str(int(limit))),
         ("qdisc", "replace", "dev", dev, "parent", CLS_BEST_EFFORT,
