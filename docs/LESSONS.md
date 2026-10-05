@@ -168,6 +168,14 @@ Three gNB timers were tried first and did not move the tail (RLC
 t-poll-retransmit 100->40, retx-BSR 80->20); the SR period 20->5 ms did help
 the idle median.
 
+**Tune auto-rate with real camera traffic, not a smooth probe.** Tightening
+the cut threshold to +15 ms (and the floor to 15 Mbit/s) looked better with the
+smooth 9.6 Mbit/s test probe, but bursty camera frames push the round trip
+past 15 ms by themselves. Auto-rate then cut to its floor with no flood
+running; with reserve 15 that left best effort 1 Mbit/s, and camera 2 was
+starved (5 Oct demo). The gentle probing (+2 %/0.25 s) is kept; the thresholds
+went back to floor 30, cut at +30 ms.
+
 **A fixed SNAT port collides across restarts.** Camera 1 and the test talker
 are NATed to ONE source port (the GBR filter's). A new process on a new local
 port collides with the old conntrack entry, which holds that mapping for 30 s,

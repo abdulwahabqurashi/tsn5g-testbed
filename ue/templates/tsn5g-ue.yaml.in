@@ -60,11 +60,12 @@ modem:
   autorate:
     enabled: true
     target: ${CORE_BEARER_IP}
-    min_mbps: 15               # the radio held only ~25 Mbit/s cleanly on 4 Oct; 30 was too high a floor
+    min_mbps: 30               # floor; with reserve 15 this leaves best effort >= 15 Mbit/s.
+                               # 15 starved camera 2 (5 Oct: be ceiling fell to 1 Mbit/s)
     max_mbps: 120
     reserve_mbps: 15
-    delay_hi_ms: 15            # cut once the modem holds 15 ms (30 let the tail reach ~145 ms)
-    delay_lo_ms: 6
+    delay_hi_ms: 30            # bursty camera frames push the round trip past 15 ms on their own;
+    delay_lo_ms: 12            # cutting at +15 ms drove the rate to the floor with no flood (5 Oct)
     interval_s: 0.25           # decide 4x a second ...
     raise_pct: 2               # ... and probe upwards gently (was +6 % per 0.5 s)
   egress_classes:
