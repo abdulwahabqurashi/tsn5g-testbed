@@ -17,8 +17,9 @@
 import { ApiError } from "../core/api.js";
 import { defineView } from "../core/component.js";
 import { confirm, toast } from "../core/dialog.js";
-import { clear, h } from "../core/dom.js";
+import { clear, fill, h } from "../core/dom.js";
 import * as charts from "../ui/charts.js";
+import { axisRow, chip, chips, seg } from "../ui/observe.js";
 import { palette } from "../ui/tokens.js";
 import { badge, btnRow, button, card, field, row, select, table } from "../ui/widgets.js";
 
@@ -51,17 +52,19 @@ export default defineView({
 
     // Top: the guided setup. Middle: what you watch during a demo. Bottom,
     // collapsed: every individual control, for when a step needs a closer look.
+    // The checklist folds to one line once every step passes, and opens by
+    // itself when one stops passing.
     const setupBody = h("div");
+    const setupSum = h("summary");
+    const setupCard = h("details", { class: "card col12 setup" }, setupSum, setupBody);
+    let setupWasDone = null;
+    const liveHead = h("div", { class: "card-head" });
+    const arHead = h("div", { class: "card-head" });
     view.root.appendChild(h("div", { class: "grid" },
-      card("Set up the camera demo", { span: "col12",
-        hint: "work down the list — each step checks itself and has one button" }, setupBody),
-      card("Live", { span: "col5", hint: "per camera, leaving on the 5G link" }, liveBody),
-      h("section", { class: "card col7" },
-        h("div", { class: "card-head" },
-          h("h3", { text: "Per-camera rate" }),
-          h("span", { class: "hint", text: "last 5 minutes, Mbit/s" })),
-        chartBody),
-      card("Auto-rate", { span: "col12", hint: "keeps the UE just under the radio, so priority is decided here" }, arBody),
+      setupCard,
+      h("section", { class: "card col12" }, liveHead,
+        h("div", { class: "live-split" }, liveBody, chartBody)),
+      h("section", { class: "card col12" }, arHead, arBody),
       h("details", { class: "card col12" },
         h("summary", { style: { cursor: "pointer", "font-weight": "600" },
                        text: "Advanced controls — rig, camera roles, queue policy, lanes" }),
@@ -141,10 +144,15 @@ export default defineView({
             ? busy.map((b) => `${KIND_LABEL[b.kind] || b.kind} (${b.for_s} s)`).join(", ")
             : "applying" })));
       }
-      if (c.all_done) {
-        setupBody.appendChild(h("p", { style: { "font-weight": "600", color: "var(--green)" },
-          text: "Everything is set. Run the demo from the UE:  /opt/tsn5g/tools/demo-run.sh" }));
-      }
+      const passed = c.steps.filter((st) => st.state === "ok").length;
+      fill(setupSum,
+        h("span", { class: `setup-ic ${c.all_done ? "ok" : "now"}`, text: c.all_done ? "✓" : String(passed + 1) }),
+        h("span", { class: "setup-title", text: c.all_done ? "Ready for the demo" : "Set up the camera demo" }),
+        h("span", { class: "hint", text: `${passed} of ${c.steps.length} checks pass` }),
+        c.all_done ? h("a", { class: "btn primary setup-go", href: "#/tests", text: "Run the demo",
+                              onclick: (e) => e.stopPropagation() }) : null);
+      if (setupWasDone !== c.all_done) setupCard.open = !c.all_done;
+      setupWasDone = c.all_done;
       c.steps.forEach((st, i) => {
         const node = h("div", { style: {
           display: "grid", "grid-template-columns": "34px 1fr auto", gap: "12px", "align-items": "start",
@@ -307,18 +315,21 @@ export default defineView({
         }
       };
       clear(arBody);
-      const left = h("div", { style: { "grid-column": "span 4" } },
-        row("State", badge(a.active ? `on — ${a.last_action || "running"}` : (cfg.enabled ? "waiting" : "off"),
-                           a.active ? "green" : cfg.enabled ? "amber" : "gray")),
-        a.reason ? h("p", { class: "hint", text: a.reason }) : null,
-        row("Shaping rate", a.rate_mbps == null ? null : `${a.rate_mbps} Mbit/s`),
-        row("Best-effort cap now", a.be_ceil_mbps == null ? null : `${a.be_ceil_mbps} Mbit/s`),
-        row("Sent on the bearer", a.load_mbps == null ? null : `${a.load_mbps} Mbit/s`),
-        row("Round trip / baseline", a.rtt_ms == null ? null : `${a.rtt_ms} / ${a.base_rtt_ms} ms`),
-        btnRow(button(cfg.enabled ? "Turn off" : "Turn on", {
-          kind: cfg.enabled ? "danger" : "primary",
-          onclick: () => set({ enabled: !cfg.enabled }),
-        })));
+      const p = palette();
+      fill(arHead,
+        h("div", { class: "head-l" }, h("h3", { text: "Auto-rate" }),
+          badge(a.active ? `on · ${a.last_action || "running"}` : (cfg.enabled ? "waiting" : "off"),
+                a.active ? "green" : cfg.enabled ? "amber" : "gray"),
+          h("span", { class: "hint", text: "keeps the UE just under the radio, so priority is decided here" })),
+        h("div", { class: "head-r" }, button(cfg.enabled ? "Turn off" : "Turn on", {
+          kind: cfg.enabled ? "" : "primary", onclick: () => set({ enabled: !cfg.enabled }) })));
+      const f = (v, u) => (v == null ? "—" : `${v} ${u}`);
+      const left = h("div", { class: "ar-chips" },
+        chips(chip(p.series[0], "Shaping rate", f(a.rate_mbps, "Mbit/s")),
+              chip(p.series[2], "Sent", f(a.load_mbps, "Mbit/s")),
+              chip(null, "Best-effort cap", f(a.be_ceil_mbps, "Mbit/s")),
+              chip(null, "Round trip", a.rtt_ms == null ? "—" : `${a.rtt_ms} ms (base ${a.base_rtt_ms})`)),
+        a.reason ? h("p", { class: "hint", text: a.reason }) : null);
       // Built once and kept: the panel repaints every 2 s, and rebuilding the
       // settings would wipe whatever the operator is typing.
       if (!arMid) {
@@ -328,31 +339,28 @@ export default defineView({
           reserve: h("input", { type: "number", class: "mini-input", value: cfg.reserve_mbps }),
           hi: h("input", { type: "number", class: "mini-input", value: cfg.delay_hi_ms }),
         };
-        arMid = h("div", { style: { "grid-column": "span 3" } },
-          field("Min (Mbit/s)", inputs.min), field("Max (Mbit/s)", inputs.max),
-          field("Protected reserve (Mbit/s)", inputs.reserve, "always kept for the protected lane"),
-          field("Cut when delay rises by (ms)", inputs.hi),
+        arMid = h("details", { class: "raw-output" }, h("summary", { class: "hint", text: "Settings" }),
+          h("div", { class: "ar-fields" },
+            field("Min (Mbit/s)", inputs.min), field("Max (Mbit/s)", inputs.max),
+            field("Protected reserve (Mbit/s)", inputs.reserve, "always kept for the protected lane"),
+            field("Cut when delay rises by (ms)", inputs.hi)),
           btnRow(button("Save", { onclick: () => set({
             min_mbps: Number(inputs.min.value), max_mbps: Number(inputs.max.value),
             reserve_mbps: Number(inputs.reserve.value), delay_hi_ms: Number(inputs.hi.value) }) })));
       }
       const mid = arMid;
-      const right = h("div", { style: { "grid-column": "span 5" } }, arChart);
+      const right = arChart;
       clear(arChart);
       const hist = a.history || [];
       if (hist.length > 2) {
-        const p = palette();
         const now = Date.now();
         const toPts = (k) => hist.map((x) => ({ t: x.t * 1000, v: x[k] })).filter((x) => x.v != null);
         arChart.appendChild(charts.timeSeries([toPts("rate"), toPts("load")], {
           h: 150, colors: [p.series[0], p.series[2]], gapMs: 3000, fill: false, to: now }));
-        arChart.appendChild(h("p", { class: "hint" },
-          h("span", { style: { color: p.series[0], "font-weight": "700" }, text: "■ shaping rate  " }),
-          h("span", { style: { color: p.series[2], "font-weight": "700" }, text: "■ sent on the bearer" })));
       } else {
-        arChart.appendChild(h("p", { class: "muted", text: a.active ? "Collecting…" : "The chart appears once auto-rate is running." }));
+        arChart.appendChild(h("div", { class: "empty-chart", text: a.active ? "Collecting…" : "The chart appears once auto-rate is running." }));
       }
-      arBody.appendChild(h("div", { class: "grid" }, left, mid, right));
+      arBody.append(left, right, mid);
     }
 
     // ---- cameras ---------------------------------------------------------------
@@ -492,23 +500,50 @@ export default defineView({
       return d >= 0 ? d / dt : null;   // a reset counter is not a negative rate
     }
 
+    async function setPolicy(policy) {
+      try {
+        const q = await view.api.bearer.queue({ signal: view.signal });
+        if (q.policy === policy) return;
+        await view.api.bearer.setQueue({ policy, be_mbps: q.be_mbps, link_mbps: q.link_mbps, limit: q.limit },
+                                       { signal: view.signal });
+        toast(policy === "limited" ? "protection on" : "protection off", "ok");
+        prev = null;           // counters were reset with the qdisc
+        paintQueue();
+      } catch (err) {
+        if (!(err instanceof ApiError && err.isAborted)) toast(err.message, "err");
+      }
+    }
+
     function paintLive(c) {
       const dt = prev ? c.t - prev.t : 0;
       const now = Date.now();
       clear(liveBody);
-      const rows = [];
-      for (const s of c.streams || []) {
+      const on = c.policy === "limited";
+      fill(liveHead,
+        h("div", { class: "head-l" }, h("h3", { text: "Live streams" }),
+          h("span", { class: "hint", text: "leaving on the 5G link" })),
+        h("div", { class: "head-r" }, h("span", { class: "hint", text: "Protection" }),
+          seg([{ value: "limited", label: "On" }, { value: "shallow", label: "Off" }],
+              on ? "limited" : c.policy === "shallow" ? "shallow" : null, setPolicy)));
+      const p = palette();
+      (c.streams || []).forEach((s, i) => {
         const old = prev?.streams?.find((x) => x.name === s.name);
         const mbit = dt > 0 ? rate(s, old, "bytes", dt) : null;
         const dps = dt > 0 ? rate(s, old, "pkts", dt) : null;
         if (mbit != null) push(series[s.name] ||= [], (mbit * 8) / 1e6, now);
-        rows.push([s.name, s.lane === "protected" ? badge("protected", "green") : badge("best effort", "gray"),
-                   mbit == null ? null : `${((mbit * 8) / 1e6).toFixed(2)} Mbit/s`,
-                   dps == null ? null : `${Math.round(dps)} /s`]);
-      }
-      liveBody.appendChild(table(["camera", "lane", "rate", "datagrams"], rows));
-      liveBody.appendChild(row("Policy", c.policy === "limited"
-        ? `limited — best effort ${c.be_mbps} of ${c.link_mbps} Mbit/s` : c.policy));
+        const prot = s.lane === "protected";
+        liveBody.appendChild(h("div", { class: "cam-tile" },
+          h("div", { class: "ct-top" },
+            h("span", { class: "ct-swatch", style: { background: p.series[i] } }),
+            h("b", { text: s.name }),
+            badge(prot ? "protected" : "best effort", prot ? "green" : "gray")),
+          h("div", { class: "ct-val" }, mbit == null ? "—" : ((mbit * 8) / 1e6).toFixed(1),
+            h("small", { text: " Mbit/s" })),
+          h("div", { class: "ct-sub", text: dps == null ? "" : `${Math.round(dps)} datagrams/s` })));
+      });
+      liveBody.appendChild(h("p", { class: "hint", text: on
+        ? `Protection on: camera 2 and anything else capped at ${c.be_mbps} of ${c.link_mbps} Mbit/s`
+        : "Protection off: one queue, both cameras share whatever the radio gives" }));
 
       // lanes
       clear(laneBody);
@@ -540,19 +575,16 @@ export default defineView({
       clear(chartBody);
       const names = Object.keys(series);
       if (!names.length) {
-        chartBody.appendChild(h("p", { class: "muted", text: "Collecting — two samples needed." }));
+        chartBody.appendChild(h("div", { class: "empty-chart", text: "Collecting…" }));
         return;
       }
       const p = palette();
+      const peak = Math.max(1, ...names.flatMap((n) => series[n].map((x) => x.v)));
       chartBody.appendChild(charts.timeSeries(names.map((n) => series[n]), {
-        h: 180, colors: names.map((_, i) => p.series[i % p.series.length]), gapMs: 5000, fill: false,
+        h: 200, colors: names.map((_, i) => p.series[i % p.series.length]), gapMs: 5000, fill: false,
+        min: 0, max: Math.ceil(peak * 1.4),
       }));
-      chartBody.appendChild(h("p", { class: "hint" }, ...names.map((n, i) => {
-        const last = series[n][series[n].length - 1];
-        return h("span", { style: { color: p.series[i % p.series.length], "font-weight": "700",
-                                    "margin-right": "16px" },
-                           text: `■ ${n} ${last ? last.v.toFixed(2) : "–"} Mbit/s` });
-      })));
+      chartBody.appendChild(axisRow("5 min", `Mbit/s, 0–${Math.ceil(peak * 1.4)}`, "now"));
     }
 
     async function poll() {

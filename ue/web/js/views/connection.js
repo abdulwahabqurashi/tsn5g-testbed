@@ -349,7 +349,8 @@ export default defineView({
         }
         const full = await view.api.jobs.get(last.id, { signal: view.signal });
         paintSteps(full);
-        for (const line of full.lines || []) echo(`  ${line}`);
+        clear(logPane);
+        appendLines(full.lines || [], 0);
       } catch (err) {
         if (!(err instanceof ApiError && err.isAborted)) {
           // Nothing to show is not an error worth a panel.

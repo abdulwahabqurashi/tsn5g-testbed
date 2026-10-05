@@ -6,7 +6,7 @@ address, the modem interface, ports — comes from `site.env` via `common.sh`.
 
 | Script | What it answers | Needs |
 |---|---|---|
-| `demo-run.sh` | Does the protected camera keep its frames when the uplink is flooded, with the policy on vs off? (the headline demo) | cameras running, SSH key to the core, sudo on the core once |
+| `demo-run.sh` | Does the protected camera keep its frames when the uplink is flooded, with the policy on vs off? (the headline demo) | cameras running, SSH key to the core, tcpdump allowed on the core (CHANGES 15) or its sudo password |
 | `camera-loss-check.sh [s]` | Are datagrams lost between the UE and the core's N3? (UE counters vs a core capture, same instant) | cameras running |
 | `radio-loss-test.sh` | Raw radio loss for four UDP patterns, no cameras | cameras stopped |
 | `lcp-test.sh 1\|2\|2b\|2c\|3` | Does the modem honour QoS flow priority under congestion? (LCP brief) | cameras stopped |
@@ -21,6 +21,9 @@ address, the modem interface, ports — comes from `site.env` via `common.sh`.
 
 The analysers (`demo-analyse.py`, `lcp-analyse.py`, `n3count.py`) are run by
 the scripts above and can be re-run on a saved result directory.
+
+The console runs `demo-run`, `radio-loss-test`, `qbv-live` and `gnb-drift` with one click
+(Tests page; `ue/tsn5g_ue/testrun.py`), handling the cameras around them.
 
 Results go under `~/demo-runs/`, `~/lcp-runs/`, `~/radio-loss/`.
 Override any site value for one run: `CORE_SSH=me@host ./demo-run.sh`.

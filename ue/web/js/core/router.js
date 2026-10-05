@@ -60,6 +60,10 @@ export function createRouter({ routes, outlet, ctx, onChange, onError }) {
     if (!hit) return;
 
     const { route, params } = hit;
+    if (route.redirect) {       // an old address: replace it, so back does not bounce
+      location.replace(`#${route.redirect}`);
+      return;
+    }
 
     if (active) {
       const previous = active;

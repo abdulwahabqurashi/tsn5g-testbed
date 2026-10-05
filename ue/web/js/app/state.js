@@ -28,7 +28,7 @@ export function initialState() {
     signal: { latest: null, history: [] },
     jobs: { active: {}, recent: [] },
     logs: { lines: [], level: "info", paused: false, lastId: 0 },
-    ui: { theme: "auto", density: "desktop", route: "dashboard", title: "Dashboard" },
+    ui: { theme: "auto", density: "desktop", route: "dashboard", title: "Overview" },
   };
 }
 
@@ -46,11 +46,12 @@ export function pushSample(ring, value, now = Date.now()) {
   return i ? next.slice(i) : next;
 }
 
-/** Total rx/tx bytes-per-second across every interface the backend reports. */
-export function totalRates(stats) {
+/** rx/tx bits-per-second of `only` if the backend reports it, else of every interface. */
+export function totalRates(stats, only) {
   let rx = 0;
   let tx = 0;
-  for (const iface of Object.values(stats?.interfaces || {})) {
+  const all = stats?.interfaces || {};
+  for (const iface of only && all[only] ? [all[only]] : Object.values(all)) {
     rx += Number(iface.rx_bytes_per_s || 0);
     tx += Number(iface.tx_bytes_per_s || 0);
   }

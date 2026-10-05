@@ -1,24 +1,31 @@
 /**
- * Tests: the saved results of the measurement tools, drawn to be read at a
- * glance (radio clock drift, the Qbv / priority uplink test, the camera demo).
+ * Tests: start a measurement with one click, watch it, read the result.
  *
- * The tools run from a shell (tools/gnb-drift.sh, tools/qbv-live.sh,
- * tools/demo-run.sh) and leave one directory per run; /api/results reads them.
- * A run still in progress refreshes itself every 30 s.
+ * Each tile is one of the CLI tools (tools/demo-run.sh, radio-loss-test.sh,
+ * qbv-live.sh, gnb-drift.sh). The daemon runs it as a job (testrun.py): it
+ * pauses or starts the cameras as the test needs, streams the tool's output
+ * here, and puts the cameras back afterwards. The tools still run from a
+ * shell exactly as before, and a shell run shows up under Results too.
+ *
+ * Only one test runs at a time (they share the uplink); Stop sends Ctrl-C to
+ * the tool, which restores the queue policy and removes what it built.
  */
 
 import { ApiError } from "../core/api.js";
 import { defineView } from "../core/component.js";
+import { confirm, toast } from "../core/dialog.js";
 import { clear, fill, h } from "../core/dom.js";
-import { clockTime } from "../core/format.js";
+import { clockTime, duration } from "../core/format.js";
 import * as charts from "../ui/charts.js";
-import { axisRow, barCell, chip, chips, healthStrip, heatmap, heatScale, seg } from "../ui/observe.js";
+import { icon } from "../ui/icons.js";
+import { barCell, chip, chips, heatmap, heatScale } from "../ui/observe.js";
 import { palette } from "../ui/tokens.js";
 import { badge, button } from "../ui/widgets.js";
 
-const LIVE_RANGES = [{ value: 5, label: "5 min" }, { value: 15, label: "15 min" }, { value: 60, label: "1 h" }];
-
-const KIND_BADGE = { drift: ["clock drift", "blue"], qbv: ["uplink QoS", "green"], demo: ["camera demo", "amber"] };
+const KIND_BADGE = { drift: ["clock drift", "blue"], qbv: ["uplink priority", "green"],
+                     demo: ["camera demo", "amber"], loss: ["uplink loss", "gray"] };
+const TEST_ICON = { demo: "camera", loss: "signal", qbv: "sliders", drift: "clock" };
+const CAMERA_NOTE = { running: "Uses the cameras", stopped: "Pauses the cameras" };
 
 function when(ts) {
   const d = new Date(ts * 1000);
@@ -36,30 +43,147 @@ export default defineView({
   name: "tests",
 
   async mount(view) {
+    const tilesBody = h("div", { class: "test-tiles" });
+    const runCard = h("section", { class: "card col12 run-card", hidden: true });
     const listBody = h("div", { class: "run-list" });
     const detailHead = h("div", { class: "card-head" });
     const detailBody = h("div");
+    let catalog = [];
+    const choice = {};          // test id -> {KEY: value}
+    const openOpts = new Set(); // tiles whose options are unfolded
+    let job = null;             // the test job being shown (running or just finished)
     let runs = [];
-    let current = null;     // {kind, id}
+    let current = null;         // {kind, id}
     let refresh = null;
-    const liveHead = h("div", { class: "card-head" });
-    const liveBody = h("div");
-    let liveRange = 15;
-    let liveZoom = "all";      // "all" | "protected": scale to camera 1's lane
+    const want = view.query.run?.split("/");
+    if (want?.length === 2) current = { kind: want[0], id: want[1] };
 
     view.root.appendChild(h("div", { class: "grid" },
-      h("section", { class: "card col12" }, liveHead, liveBody),
+      h("section", { class: "card col12" },
+        h("div", { class: "card-head" }, h("h3", { text: "Run a test" }),
+          h("span", { class: "hint", text: "one at a time; the cameras are handled for you" })),
+        tilesBody),
+      runCard,
       h("section", { class: "card col4" },
-        h("div", { class: "card-head" }, h("h3", { text: "Runs" }),
+        h("div", { class: "card-head" }, h("h3", { text: "Results" }),
           h("span", { class: "hint", text: "newest first" })),
         listBody),
       h("section", { class: "card col8" }, detailHead, detailBody)));
 
+    // ---- tiles ------------------------------------------------------------------
+    const running = () => job && ["queued", "running"].includes(job.state);
+
+    function paintTiles() {
+      clear(tilesBody);
+      for (const t of catalog) {
+        const mine = running() && job.params?.test === t.id;
+        const opts = (choice[t.id] ||= Object.fromEntries(t.params.map((p) => [p.key, p.default])));
+        tilesBody.appendChild(h("div", { class: `test-tile${mine ? " active" : ""}` },
+          h("div", { class: "tt-top" },
+            h("span", { class: "tt-ic" }, icon(TEST_ICON[t.id] || "pulse")),
+            h("div", null, h("div", { class: "tt-title", text: t.title }),
+              h("div", { class: "tt-meta", text: `~${Math.round(t.minutes)} min · ${CAMERA_NOTE[t.cameras] || ""}` }))),
+          h("p", { class: "tt-sum", text: t.summary }),
+          t.params.length ? h("details", { class: "tt-more", open: openOpts.has(t.id),
+            ontoggle: (e) => { if (e.target.open) openOpts.add(t.id); else openOpts.delete(t.id); } },
+            h("summary", { text: "Options" }),
+            ...t.params.map((p) => h("label", { class: "tt-opt" },
+              h("span", { text: p.label }),
+              h("select", { class: "mini-select", disabled: running(),
+                onchange: (e) => { opts[p.key] = e.target.value; } },
+                ...p.options.map(([v, label]) => h("option", { value: v, text: label, selected: v === opts[p.key] })))))) : null,
+          h("div", { class: "tt-foot" },
+            mine ? button("Stop", { kind: "danger", onclick: stop })
+              : button("Run", { kind: "primary", disabled: running(), onclick: () => start(t) }),
+            t.capture ? h("span", { class: "hint", text: "captures on the core" }) : null)));
+      }
+    }
+
+    async function start(t) {
+      const body = choice[t.id] || {};
+      if (t.cameras === "stopped") {
+        const ok = await confirm({ title: `Run ${t.title}?`, confirmLabel: "Run",
+          body: `About ${Math.round(t.minutes)} minutes. The camera streams pause during the test and restart by themselves afterwards.` });
+        if (!ok) return;
+      }
+      try {
+        const res = await view.api.tests.run(t.id, body, { signal: view.signal });
+        job = { id: res.job_id, state: "queued", params: { test: t.id }, lines: [], steps: [] };
+        paintTiles(); paintRun(); follow();
+      } catch (err) {
+        if (!(err instanceof ApiError && err.isAborted)) toast(err.message, "err");
+      }
+    }
+
+    async function stop() {
+      if (!job) return;
+      try {
+        await view.api.jobs.cancel(job.id, { signal: view.signal });
+        toast("stopping: the test cleans up first", "ok");
+      } catch (err) {
+        if (!(err instanceof ApiError && err.isAborted)) toast(err.message, "err");
+      }
+    }
+
+    // ---- the run in progress --------------------------------------------------------
+    let following = false;
+    async function follow() {
+      if (following) return;
+      following = true;
+      try {
+        while (job && running()) {
+          await new Promise((r) => view.timeout(r, 1500));
+          job = await view.api.jobs.get(job.id, { signal: view.signal });
+          paintRun();
+        }
+        paintTiles();
+        if (job?.state === "succeeded" && job.result?.run_id) {
+          current = { kind: job.result.kind, id: job.result.run_id };
+          toast("test finished", "ok");
+        } else if (job?.state === "failed") {
+          toast(job.error || "the test failed", "err");
+        }
+        await loadList(); await loadRun();
+      } catch (err) {
+        if (!(err instanceof ApiError && err.isAborted)) toast(err.message, "err");
+      } finally {
+        following = false;
+      }
+    }
+
+    function paintRun() {
+      if (!job) { runCard.hidden = true; return; }
+      runCard.hidden = false;
+      const t = catalog.find((c) => c.id === job.params?.test) || { title: "Test" };
+      const live = running();
+      const st = { queued: ["starting", "blue"], running: ["running", "blue"], succeeded: ["finished", "green"],
+                   failed: ["failed", "red"], cancelled: ["stopped", "gray"] }[job.state] || [job.state, "gray"];
+      const elapsed = job.started ? ((job.finished || Date.now() / 1000) - job.started) : 0;
+      const pct = live ? (job.progress?.pct || 0) : 100;
+      const lines = job.lines || [];
+      const pre = h("pre", { class: "log run-log", text: lines.slice(-200).join("\n") || "…" });
+      fill(runCard,
+        h("div", { class: "card-head" },
+          h("div", { class: "head-l" }, h("h3", { text: t.title }), badge(st[0], st[1]),
+            h("span", { class: "hint", text: elapsed ? duration(Math.round(elapsed)) : "" })),
+          h("div", { class: "head-r" },
+            live ? button("Stop", { kind: "danger", onclick: stop })
+              : button("Close", { onclick: () => { job = null; paintRun(); } }))),
+        h("div", { class: "steps-inline" }, ...(job.steps || []).map((s) => h("span", {
+          class: `si ${s.state}`, text: { check: "Check", cameras: "Cameras", run: "Measure", restore: "Restore" }[s.name] || s.name }))),
+        h("div", { class: `run-bar${job.state === "failed" ? " err" : live ? "" : " done"}` },
+          h("i", { style: { width: `${pct}%` } })),
+        h("div", { class: "run-msg", text: job.error || job.progress?.message || "" }),
+        h("details", { class: "raw-output", open: job.state === "failed" },
+          h("summary", { class: "hint", text: `Output (${lines.length} lines)` }), pre));
+      pre.scrollTop = pre.scrollHeight;
+    }
+
+    // ---- results list ------------------------------------------------------------------
     function paintList() {
       clear(listBody);
       if (!runs.length) {
-        listBody.appendChild(h("p", { class: "muted",
-          text: "No saved runs yet. Results appear here when tools/gnb-drift.sh, qbv-live.sh or demo-run.sh finish." }));
+        listBody.appendChild(h("p", { class: "muted", text: "No results yet. Run a test above." }));
         return;
       }
       for (const r of runs) {
@@ -172,8 +296,8 @@ export default defineView({
           ...Array.from({ length: d.total }, (_, i) => h("span", {
             class: i < done.length ? (done[i].policy === "limited" ? "hs-ok" : "hs-warn") : "hs-off" }))));
         detailBody.appendChild(h("p", { class: "hint", style: { "margin-top": "10px" }, text:
-          "Results appear here when the run finishes (about 8 minutes in all). Green = policy on, amber = policy off. "
-          + "Watch the live latency card above meanwhile." }));
+          "Results appear here when the run finishes. Green = policy on, amber = policy off. "
+          + "The Overview shows the live delay meanwhile." }));
         if (done.length) {
           detailBody.appendChild(h("table", { class: "tbl" },
             h("thead", null, h("tr", null, ...["Phase", "Policy", "Flood"].map((t) => h("th", { text: t })))),
@@ -205,17 +329,42 @@ export default defineView({
           h("td", { text: x.sinr_db == null ? "—" : `${x.sinr_db} dB` }))))));
     }
 
+    // ---- uplink loss -------------------------------------------------------------
+    function paintLoss(d) {
+      const p = palette();
+      const v = d.variants || [];
+      fill(detailHead, h("h3", { text: "Uplink loss" }),
+        d.running ? badge(`running · ${v.length} of 4`, "blue")
+          : h("span", { class: "hint", text: "one camera's rate, four ways" }));
+      clear(detailBody);
+      if (!v.length) {
+        detailBody.appendChild(h("p", { class: "muted", text: "No results yet." }));
+        return;
+      }
+      const maxLoss = Math.max(1, ...v.map((x) => x.loss_pct || 0));
+      detailBody.appendChild(h("table", { class: "tbl" },
+        h("thead", null, h("tr", null, ...["Variant", "Loss", "Jitter", "Sent"].map((t) => h("th", { text: t })))),
+        h("tbody", null, ...v.map((x) => h("tr", null,
+          h("td", { text: `${x.variant} · ${x.name}` }),
+          h("td", null, x.error ? badge(x.error, "red") : barCell(x.loss_pct, maxLoss, x.loss_pct > 1 ? p.err : p.ok, `${x.loss_pct} %`)),
+          h("td", { text: x.jitter_ms == null ? "—" : `${x.jitter_ms} ms` }),
+          h("td", { text: x.sent == null ? "—" : String(x.sent) }))))));
+      detailBody.appendChild(h("p", { class: "hint", style: { "margin-top": "10px" }, text:
+        "Read across: A vs B is packet size (fragmentation), B vs C is burstiness, C vs D is the GBR flow." }));
+    }
+
     async function loadRun() {
       if (!current) return;
       try {
         const d = await view.api.results.get(current.kind, current.id, { signal: view.signal });
-        ({ drift: paintDrift, qbv: paintQbv, demo: paintDemo }[d.kind] || (() => {}))(d);
+        ({ drift: paintDrift, qbv: paintQbv, demo: paintDemo, loss: paintLoss }[d.kind] || (() => {}))(d);
         if (refresh) { clearInterval(refresh); refresh = null; }
-        if ((d.kind === "drift" && d.verdict === "running") || (d.kind === "demo" && d.running)) {
-          refresh = view.interval(async () => { await loadList(); await loadRun(); }, 30000);
+        if ((d.kind === "drift" && d.verdict === "running") || d.running) {
+          refresh = view.interval(async () => { await loadList(); await loadRun(); }, 15000);
         }
       } catch (err) {
         if (!(err instanceof ApiError && err.isAborted)) {
+          fill(detailHead, h("h3", { text: "Result" }));
           fill(detailBody, h("p", { class: "muted", text: err.message }));
         }
       }
@@ -234,80 +383,30 @@ export default defineView({
       paintList();
     }
 
-    // ---- live one-way latency ---------------------------------------------------
-    async function loadLive() {
-      let st; let hist;
+    // A test started earlier, from another browser, or before a reload.
+    async function findActive() {
       try {
-        [st, hist] = await Promise.all([view.api.latency.status({ signal: view.signal }),
-                                        view.api.latency.history(liveRange, { signal: view.signal })]);
-      } catch (err) {
-        if (!(err instanceof ApiError && err.isAborted)) {
-          fill(liveHead, h("h3", { text: "Live one-way latency" }));
-          fill(liveBody, h("p", { class: "muted", text: err.message }));
+        const res = await view.api.jobs.list({ kind: "test.run", limit: 1 }, { signal: view.signal });
+        const last = (res.jobs || [])[0];
+        if (last && (["queued", "running"].includes(last.state) || Date.now() / 1000 - (last.finished || 0) < 600)) {
+          job = await view.api.jobs.get(last.id, { signal: view.signal });
         }
-        return;
+      } catch (err) {
+        if (!(err instanceof ApiError && err.isAborted)) { /* no job history is not worth a panel */ }
       }
-      paintLive(st, hist);
     }
 
-    function paintLive(st, hist) {
-      const p = palette();
-      const on = st.config?.enabled;
-      const state = !on ? ["off", "gray"] : !st.bound_to ? ["bearer down", "amber"]
-        : !st.reflector ? ["no reply from the core", "red"] : ["live", "green"];
-      fill(liveHead,
-        h("div", { style: { display: "flex", gap: "10px", "align-items": "center" } },
-          h("h3", { text: "Live one-way latency, uplink" }), badge(state[0], state[1])),
-        h("div", { style: { display: "flex", gap: "10px", "align-items": "center" } },
-          seg([{ value: "all", label: "Both lanes" }, { value: "protected", label: "Zoom: protected" }],
-              liveZoom, (v) => { liveZoom = v; loadLive(); }),
-          seg(LIVE_RANGES, liveRange, (v) => { liveRange = v; loadLive(); }),
-          button(on ? "Stop" : "Start", { kind: on ? "" : "primary",
-            onclick: async () => { await view.api.latency.set({ enabled: !on }, { signal: view.signal }); loadLive(); } })));
-      clear(liveBody);
-      if (on && st.bound_to && !st.reflector) {
-        liveBody.appendChild(h("p", { class: "hint", text:
-          "No replies yet. The core must run the reflector: sudo systemctl start tsn5g-latency-reflector "
-          + "(or python3 ~/tsn5g-testbed/core/scripts/latency-reflector.py)." }));
+    try {
+      catalog = (await view.api.tests.catalog({ signal: view.signal })).tests || [];
+    } catch (err) {
+      if (!(err instanceof ApiError && err.isAborted)) {
+        tilesBody.appendChild(h("p", { class: "muted", text: `Tests unavailable: ${err.message}` }));
       }
-      const pr = hist.protected || [];
-      const be = hist.best_effort || [];
-      const cur = st.current || {};
-      const f = (v) => (v == null ? "—" : `${v} ms`);
-      const lostP = pr.reduce((a, r) => a + r.lost, 0);
-      const sentP = pr.reduce((a, r) => a + r.n + r.lost, 0);
-      liveBody.appendChild(chips(
-        chip(p.series[0], "Protected, median", f(cur.protected?.up_p50)),
-        chip(p.series[3], "Protected, p99", f(cur.protected?.up_p99)),
-        chip(p.series[2], "Best effort, median", f(cur.best_effort?.up_p50)),
-        chip(null, "Downlink, median", f(cur.protected?.down_p50)),
-        chip(null, "Protected loss", sentP ? `${((100 * lostP) / sentP).toFixed(2)} %` : "—")));
-      if (!pr.length && !be.length) {
-        liveBody.appendChild(h("p", { class: "muted", style: { "margin-top": "10px" },
-          text: "No samples in this window yet." }));
-        return;
-      }
-      const to = Date.now();
-      const from = to - liveRange * 60 * 1000;
-      // values above the scale are drawn at its top edge rather than off the chart
-      const ser = (rows, k) => rows.map((r) => ({ t: r.t * 1000, v: r[k] == null ? null : Math.min(r[k], hi) }));
-      const scaleRows = liveZoom === "protected" ? pr : [...pr, ...be];
-      const all = scaleRows.flatMap((r) => [r.up_p50, r.up_p99]).filter((v) => v != null).sort((a, b) => a - b);
-      const hi = Math.max(10, (all[Math.floor(0.98 * (all.length - 1))] || 10) * (liveZoom === "protected" ? 1.15 : 1));
-      const clipped = liveZoom === "protected" && be.some((r) => r.up_p50 > hi);
-      liveBody.appendChild(h("div", { style: { "margin-top": "10px" } },
-        charts.timeSeries([ser(pr, "up_p50"), ser(pr, "up_p99"), ser(be, "up_p50")], {
-          h: 180, colors: [p.series[0], p.series[3], p.series[2]], fill: false, gapMs: 5000,
-          min: 0, max: hi, from, to })));
-      liveBody.appendChild(healthStrip(pr.map((r) => ({ ...r, t: r.t * 1000 })), from, to,
-        (r) => (r.lost ? "err" : r.up_p99 > 100 ? "warn" : "ok")));
-      liveBody.appendChild(axisRow(clockTime(from / 1000),
-        `one-way, camera 1's lane vs camera 2's; scale 0 to ${Math.round(hi)} ms${clipped ? " (best effort runs off the top)" : ""}; strip: red = loss, amber = p99 over 100 ms`,
-        clockTime(to / 1000)));
     }
-
-    await loadLive();
-    view.interval(loadLive, 3000);
+    await findActive();
+    paintTiles();
+    paintRun();
+    if (running()) follow();
     await loadList();
     await loadRun();
   },

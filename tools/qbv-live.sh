@@ -32,7 +32,7 @@
 # the report gives delay VARIATION (each packet's delay above the best one),
 # which needs no clock sync.
 set -uo pipefail
-if [ "$(id -u)" -eq 0 ]; then
+if [ "$(id -u)" -eq 0 ] && [ -z "${TSN5G_AS_USER:-}" ]; then
     echo "error: run as your normal user, without sudo (it needs your SSH key to the core; it asks for sudo itself)" >&2
     exit 1
 fi

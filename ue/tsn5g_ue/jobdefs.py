@@ -505,5 +505,14 @@ def register_all(jobs, controller):
     jobs.register("rig.press_start", rig_press_start, LANE_NET)
     jobs.register("rig.units_install", rig_units_install, LANE_NET, confirm=True)
 
+    # -- measurement tools, one click each ---------------------------------
+    from . import testrun
+
+    def test_run(ctx):
+        return testrun.run(ctx.params.get("test"), ctx.params.get("params"), ctx, controller)
+
+    # The perf lane, so a test and an iperf run cannot share the uplink.
+    jobs.register("test.run", test_run, LANE_PERF)
+
     logger.debug("registered %d job kinds", len(jobs.kinds()))
     return jobs

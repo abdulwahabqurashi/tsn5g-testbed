@@ -7,8 +7,9 @@ the desktop user and leave one directory per run in that user's home:
   ~/gnb-drift/<YYYYmmdd-HHMMSS>/   scan-N.json + scan-N.time
   ~/qbv-runs/<…>/                  <phase>.talker.json, <phase>.flood.json, run.log
   ~/demo-runs/<…>/                 results.txt (the table demo-analyse prints)
+  ~/radio-loss/<…>/                A..D-*.json, one iperf3 report per variant
 
-This module only reads them. Nothing here starts a test.
+This module only reads them; testrun.py starts them.
 """
 
 import glob
@@ -20,8 +21,8 @@ import time
 
 from . import rig
 
-KINDS = {"drift": "gnb-drift", "qbv": "qbv-runs", "demo": "demo-runs"}
-LABEL = {"drift": "Radio clock drift", "qbv": "Qbv / priority uplink test", "demo": "Camera demo"}
+KINDS = {"drift": "gnb-drift", "qbv": "qbv-runs", "demo": "demo-runs", "loss": "radio-loss"}
+LABEL = {"drift": "Radio clock drift", "qbv": "Qbv / priority uplink test", "demo": "Camera demo", "loss": "Uplink loss"}
 CYCLE_US = 5000
 QBV_PHASES = ["P-baseline", "A-none", "B-uni", "B-sch", "F-uni", "F-sch", "G-sch", "R-auto"]
 QBV_NAMES = {"P-baseline": "Idle radio", "A-none": "Flood, no policy", "B-uni": "Priority",
@@ -171,6 +172,27 @@ def demo(d):
     return {"phases": rows, "summary": summary}
 
 
+LOSS_NAMES = {"A": "1300-byte, smooth", "B": "1472-byte, smooth",
+              "C": "1472-byte, bursts", "D": "Bursts on the GBR flow"}
+
+
+def loss(d):
+    rows = []
+    for name in sorted(LOSS_NAMES):
+        f = next(iter(glob.glob(f"{d}/{name}-*.json")), None)
+        if not f:
+            continue
+        r = _load(f) or {}
+        if r.get("error") or "end" not in r:
+            rows.append({"variant": name, "name": LOSS_NAMES[name], "error": r.get("error") or "no result"})
+            continue
+        s = r["end"]["sum"]
+        rows.append({"variant": name, "name": LOSS_NAMES[name], "sent": s.get("packets"),
+                     "lost": s.get("lost_packets"), "loss_pct": round(s.get("lost_percent", 0), 2),
+                     "jitter_ms": round(s.get("jitter_ms", 0), 2)})
+    return {"variants": rows, "running": len(rows) < len(LOSS_NAMES)}
+
+
 # ------------------------------------------------------------------ index
 def _headline(kind, data):
     if kind == "drift":
@@ -183,6 +205,11 @@ def _headline(kind, data):
         best = r.get("R-auto") or r.get("B-uni")
         return (f"{len(data['phases'])} phase(s); protected p99 {best['p99_ms']} ms"
                 if best else f"{len(data['phases'])} phase(s)")
+    if kind == "loss":
+        ok = [v for v in data["variants"] if "loss_pct" in v]
+        if data["running"]:
+            return f"in progress: {len(data['variants'])} of {len(LOSS_NAMES)} variants"
+        return ("loss " + " · ".join(f"{v['variant']} {v['loss_pct']}%" for v in ok)) if ok else "no result"
     if kind == "demo":
         if data.get("running"):
             return f"in progress: {len(data['done'])} of {data['total']} phases done"
@@ -190,6 +217,9 @@ def _headline(kind, data):
         return (f"camera 1: {on['cam1_pct']}% with policy, {off['cam1_pct']}% without"
                 if on and off else f"{len(data['phases'])} phase(s)")
     return ""
+
+
+PARSE = {"drift": drift, "qbv": qbv, "demo": demo, "loss": loss}
 
 
 def list_runs(limit=40):
@@ -200,7 +230,7 @@ def list_runs(limit=40):
             if not _ID.match(rid):
                 continue
             try:
-                data = {"drift": drift, "qbv": qbv, "demo": demo}[kind](d)
+                data = PARSE[kind](d)
             except Exception:                  # noqa: BLE001 — one bad run must not hide the rest
                 continue
             runs.append({"kind": kind, "id": rid, "label": LABEL[kind], "started": _started(rid),
@@ -211,5 +241,5 @@ def list_runs(limit=40):
 
 def get(kind, run_id):
     d = _dir(kind, run_id)
-    data = {"drift": drift, "qbv": qbv, "demo": demo}[kind](d)
+    data = PARSE[kind](d)
     return {"kind": kind, "id": run_id, "label": LABEL[kind], "started": _started(run_id), **data}

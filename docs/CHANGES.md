@@ -6,7 +6,8 @@ back**. To read one commit in full: `git show <hash>`.
 
 | # | Commit | Title |
 |---|---|---|
-| 14 | *(see `git log -- tools/camera-framerate.py`)* | Cameras at 20 fps, fixed addresses; auto-rate measures only the radio |
+| 15 | *(see `git log -- ue/tsn5g_ue/testrun.py`)* | Console revamp: 8 pages, one-click tests |
+| 14 | `9576362` | Cameras at 20 fps, fixed addresses; auto-rate measures only the radio |
 | 13 | `d5e99ad` | Live one-way latency; visual pages; cameras keep their address |
 | 12 | `eada6e8` | QoS control on the core: profiles, apply, verify |
 | 11 | `cffc73e` | Auto-rate retuned; cameras followed; first rig switched |
@@ -23,6 +24,77 @@ back**. To read one commit in full: `git show <hash>`.
 
 Before these, `git log -- ue/` shows the UE application's own 40 commits
 (`cab4d17` … `fe7c587`).
+
+---
+
+## 15 — Console revamp: 8 pages, one-click tests
+
+**What**
+- Navigation goes from 17 pages to 8. Pages that answered one question
+  between them are now tabs of one page (`web/js/ui/tabs.js`):
+  - Testbed: **Overview**, **Cameras**, **Tests** (Test runs · Speed test),
+    **Time Sync**;
+  - Set-up: **5G Link** (Data call · Interfaces · Routing), **Radio**
+    (Signal · Cell & bands · Modem);
+  - System: **System** (Logs · Diagnostics · AT console), **TSN Lab**
+    (bridge · VXLAN transport · switch, which this rig does not use today).
+  - Old addresses (`#/signal`, `#/connection`, …) redirect to the right tab.
+- **Overview**, laid out like UniFi's dashboard:
+  - the path (cameras → UE → 5G radio → core) with each hop coloured by its
+    state;
+  - five tiles (link, uplink, camera 1 delay, clock offset, SINR);
+  - 5G throughput and the live one-way delay of the two camera lanes;
+  - "Needs attention", with a link to the page that fixes each item;
+  - the latest test results.
+- **Tests**: each CLI tool is a tile with **Run** (camera demo, uplink loss,
+  uplink priority, radio clock drift). The run shows live (steps, progress,
+  output) and has a **Stop** button; the result opens when it finishes.
+  - New in the daemon: `testrun.py`, `GET /api/tests` and
+    `POST /api/tests/{id}/run` (job `test.run`, perf lane).
+  - The runner pauses the cameras for tests that need a quiet uplink and
+    restarts them afterwards. For the demo it starts them.
+  - The tools run as root with `TSN5G_AS_USER`. `tools/common.sh` then runs
+    ssh/scp as the desktop user, so their key to the core is used.
+  - The tools still run from a shell exactly as before.
+- **Cameras**:
+  - the checklist folds to "Ready for the demo" once all checks pass;
+  - live streams are tiles with a one-click **Protection On/Off**;
+  - auto-rate is compact, with its settings folded away.
+- **Time Sync**: the path and its numbers are one card.
+- Fixes:
+  - the sidebar status said "Degraded" on every healthy rig. Health checked
+    the legacy VXLAN overlay; it now checks the 5G data call;
+  - the throughput chart counted every NIC, not the 5G link;
+  - the Radio charts stretched a 1 dB wobble to full height;
+  - buttons used a different font;
+  - the Connection page never showed the last run's output (`echo()` was
+    undefined);
+  - the CSS for `col5`/`col7` was missing.
+- `tools/demo-run.sh`: the core capture starts through `core_capture`, without
+  a password prompt (see Deploy). `radio-loss-test.sh` results show under Tests.
+
+**Why** — the user asked for every test to be one click, for UniFi's look
+and for no pages that repeat each other. The demo, the loss test, the Qbv test
+and the drift test were shell-only, and needed sudo on both machines.
+
+**Deploy**
+1. On the core, once, so that a capture needs no password:
+   ```bash
+   sudo groupadd -f pcap && sudo usermod -aG pcap $USER
+   sudo chgrp pcap /usr/bin/tcpdump && sudo chmod 750 /usr/bin/tcpdump
+   sudo setcap cap_net_raw,cap_net_admin=eip /usr/bin/tcpdump
+   ```
+   (a new SSH login picks up the group). Only the camera demo needs this.
+2. On the UE: `git pull && sudo ./install.sh ue` (the daemon restarts).
+
+**Verify**
+- The sidebar says *Online*.
+- The Overview path is green end to end.
+- Tests → *Uplink loss* → Run: the cameras pause, four variants run, the
+  cameras come back and the result opens. Stop mid-run restores the queue.
+
+**Roll back** — `git revert` this commit and `sudo ./install.sh ue`. The core's
+tcpdump change: `sudo setcap -r /usr/bin/tcpdump && sudo chmod 755 /usr/bin/tcpdump`.
 
 ---
 

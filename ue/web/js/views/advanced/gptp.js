@@ -46,8 +46,8 @@ export default defineView({
   async mount(view) {
     const problemsBody = h("section", { class: "card col12",
       style: { display: "none", "border-left": "4px solid var(--red)" } });
-    const pathBody = h("div", { class: "topo" });
-    const kpiBody = h("div", { class: "kpis", style: { "grid-template-columns": "repeat(4, minmax(0, 1fr))" } });
+    const pathBody = h("div", { class: "topo topo-wide" });
+    const kpiBody = h("div", { class: "tiles tiles-4" });
     const chartHead = h("div");
     const chartBody = h("div");
     const eventsBody = h("div");
@@ -61,11 +61,7 @@ export default defineView({
 
     view.root.appendChild(h("div", { class: "grid" },
       problemsBody,
-      h("section", { class: "card col12" },
-        h("div", { class: "card-head" }, h("h3", { text: "Clock path" }),
-          h("span", { class: "hint", text: "grandmaster to this UE" })),
-        pathBody),
-      h("section", { class: "card col12" }, kpiBody),
+      h("section", { class: "card col12 card-path" }, pathBody, kpiBody),
       h("section", { class: "card col8" },
         h("div", { class: "card-head" }, h("h3", { text: "Clock health" }), chartHead), chartBody),
       h("section", { class: "card col4" },
@@ -95,12 +91,11 @@ export default defineView({
         topoNode(icon("apps"), "Time-aware", "gates · latency tools", g.gate_clock_ok ? "ok" : ""));
     }
 
-    function kpi(label, value, sub, state) {
-      return h("div", { class: "kpi" },
-        h("div", { class: "kpi-label", text: label }),
-        h("div", { class: "big-num", style: state ? { color: `var(--${{ ok: "green-ink", warn: "amber-ink", err: "red-ink" }[state]})` } : {} },
-          value),
-        sub ? h("div", { class: "kpi-sub", text: sub }) : null);
+    function kpi(label, value, sub, state = "") {
+      return h("div", { class: `tile ${state}` },
+        h("div", { class: "tile-label", text: label }),
+        h("div", { class: "tile-val", text: value }),
+        h("div", { class: "tile-sub", text: sub || "" }));
     }
 
     function paintKpis(g) {

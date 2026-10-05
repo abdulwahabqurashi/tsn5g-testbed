@@ -108,7 +108,7 @@ export default defineView({
       liveBody.appendChild(row("Updated", s.ts ? ago(s.ts) : "—"));
       staleNote.textContent = s.stale ? "reading is stale (bus busy)" : "";
 
-      if (s.branches) paintBranches(s.branches);
+      paintBranches(s.branches);
     }
 
     function paintBranches(b) {
@@ -184,14 +184,18 @@ export default defineView({
       const sinr = toSeries("sinr");
 
       chartBody.appendChild(h("div", { class: "kpi-label", text: "RSRP (dBm)" }));
+      // A fixed, realistic scale: auto-scaling a 1 dB wobble to full height
+      // drew a steady signal as a seismograph.
+      const span = (pts, lo, hi) => ({
+        min: Math.min(lo, ...pts.map((x) => x.v - 2)), max: Math.max(hi, ...pts.map((x) => x.v + 2)) });
       chartBody.appendChild(charts.timeSeries(rsrp, {
-        h: 130, colors: [p.series[0]], gapMs: 30000,
+        h: 130, colors: [p.series[0]], gapMs: 30000, ...span(rsrp, -120, -80),
       }));
       chartBody.appendChild(h("div", { class: "kpi-label",
                                        style: { "margin-top": "14px" },
                                        text: "SINR (dB)" }));
       chartBody.appendChild(charts.timeSeries(sinr, {
-        h: 110, colors: [p.series[1]], gapMs: 30000,
+        h: 110, colors: [p.series[1]], gapMs: 30000, ...span(sinr, -5, 30),
       }));
       chartBody.appendChild(charts.legend([
         { color: p.series[0], label: "RSRP" },

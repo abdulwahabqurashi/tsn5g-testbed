@@ -349,9 +349,18 @@ class Controller:
                 "tas": self.tas.get_status() if self.tas else None}
 
     def health(self):
+        # The data call, not the legacy VXLAN overlay: this rig carries the
+        # cameras over the bearer directly, so "transport down" was permanent
+        # and made every healthy rig read "Degraded".
+        try:
+            link = bool(self.bearer._current_address())   # noqa: SLF001 — cheap, no QMI
+        except Exception:                                  # noqa: BLE001
+            link = False
         checks = {"modem": self.modem.check_health() if self.modem else False,
-                  "transport": self.transport.check_health() if self.transport else False,
+                  "link": link,
                   "gptp": self.gptp.check_health() if self.gptp else True}
+        if self.active_mode:
+            checks["transport"] = self.transport.check_health() if self.transport else False
         return {"healthy": all(checks.values()), "checks": checks, "state": self.state}
 
     def setup_state(self):

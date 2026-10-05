@@ -95,12 +95,14 @@ trap restore EXIT
 
 # UE clock minus core clock, midpoint of an SSH round trip.
 OFFSET=$(python3 - "$CORE" <<'PY'
-import subprocess, sys, time
+import os, subprocess, sys, time
+user = os.environ.get("TSN5G_AS_USER") if os.geteuid() == 0 else None
+pre = ["runuser", "-u", user, "--"] if user else []
 best = None
 for _ in range(5):
     a = time.time()
-    c = float(subprocess.check_output(["ssh", "-o", "BatchMode=yes", sys.argv[1],
-                                       "date +%s.%N"]).decode())
+    c = float(subprocess.check_output(pre + ["ssh", "-o", "BatchMode=yes", sys.argv[1],
+                                             "date +%s.%N"]).decode())
     b = time.time()
     if best is None or b - a < best[0]:
         best = (b - a, (a + b) / 2 - c)
@@ -113,12 +115,11 @@ echo "$OFFSET" > "$OUT/clock-offset.txt"
 NPHASES=$(( 1 + 2 * PAIRS ))
 TOTAL=$(( (PHASE + 10) * NPHASES + 60 ))
 echo "== $NPHASES phases of ${PHASE}s — about $(( (PHASE + 6) * NPHASES / 60 + 1 )) minutes"
-echo "== core: capture and iperf3 server (sudo password for the core, once)"
-ssh -t "$CORE" "sudo -b timeout $TOTAL tcpdump -i ogstun -n -s 96 -w $PCAP \
-    'udp and (dst port $CAM1_PORT or dst port $CAM2_PORT)' >/dev/null 2>&1; \
-    for p in \$(seq 5211 5219); do pkill -f \"^iperf3 -s -p \$p\" 2>/dev/null; \
-        iperf3 -s -p \$p -D; done" \
-    || die "could not start the core side"
+echo "== core: capture and iperf3 servers"
+core_capture "$TOTAL" "$PCAP" "-i ogstun -n -s 96 'udp and (dst port $CAM1_PORT or dst port $CAM2_PORT)'" \
+    || die "could not start the capture on the core"
+ssh -o BatchMode=yes "$CORE" "for p in \$(seq 5211 5219); do pkill -f \"^iperf3 -s -p \$p\" 2>/dev/null; \
+        iperf3 -s -p \$p -D; done" || die "could not start the iperf3 servers on the core"
 # Fresh servers on their own ports every run: on 3 Oct two floods failed with
 # "Resource temporarily unavailable" because 5202/5205 were still held by
 # servers left over from earlier tests.

@@ -67,4 +67,4 @@ run D-gbr-1472-burst15      5224 -b "$RATE/15"  -l 1472 --cport $GBR_PORT
 
 echo
 echo "read it as:   A vs B = fragmentation    B vs C = bursts    C vs D = GBR bearer"
-echo "radio right now: $(curl -sf localhost:8080/api/signal | python3 -c 'import json,sys; s=json.load(sys.stdin); print(f"RSRP {s.get(\"rsrp\")} dBm, SINR {s.get(\"sinr\")} dB")' 2>/dev/null)"
+echo "radio right now: $(curl -sf $API/api/signal | python3 -c 'import json,sys; s=json.load(sys.stdin); print(f"RSRP {s.get(\"rsrp\")} dBm, SINR {s.get(\"sinr\")} dB")' 2>/dev/null)"

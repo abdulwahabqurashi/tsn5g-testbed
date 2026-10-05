@@ -26,7 +26,9 @@ export function wireTelemetry({ bus, store }) {
   // -- interface counters and the link probe ------------------------------
   bus.on("stats", (stats) => {
     const now = Date.now();
-    const { rx, tx } = totalRates(stats);
+    // The 5G link's own counters when it is up; every NIC summed otherwise.
+    const wwan = store.get().status?.modem?.wwan_interface || "wwan0";
+    const { rx, tx } = totalRates(stats, wwan);
     const series = store.get().series;
     const next = {
       // "down" is what arrives at the UE, i.e. rx.

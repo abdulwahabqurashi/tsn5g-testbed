@@ -43,7 +43,7 @@ function buildNav(navigate) {
   clear(nav);
 
   for (const section of SECTIONS) {
-    const items = ROUTES.filter((r) => r.section === section.id);
+    const items = ROUTES.filter((r) => r.section === section.id && !r.hidden);
     if (!items.length) continue;
 
     nav.appendChild(h("div", { class: "nav-cap", text: section.label }));
@@ -111,12 +111,17 @@ function paintConn(store) {
 
   // Once data is flowing, the badge reports the system rather than the pipe.
   if (transport === "sse" || transport === "poll") {
+    // The data call is what "online" means on this rig; the controller's own
+    // state stays "idle" when the call was brought up as a bearer job.
     const state = s.status?.state;
-    const healthy = s.health?.healthy;
+    const checks = s.health?.checks || {};
     if (state === "error") { cls = "err"; text = "Error"; }
-    else if (state === "running") { cls = healthy ? "ok" : "warn"; text = healthy ? "Running" : "Degraded"; }
     else if (state === "connecting") { cls = "warn"; text = "Connecting"; }
-    else if (state) { cls = "idle"; text = state.charAt(0).toUpperCase() + state.slice(1); }
+    else if (checks.link ?? state === "running") {   // older daemons report no link check
+      const off = Object.entries(checks).filter(([, ok]) => !ok).map(([k]) => (k === "gptp" ? "PTP" : k));
+      cls = off.length ? "warn" : "ok";
+      text = off.length ? `Online · ${off.join(", ")} down` : "Online";
+    } else if (s.health) { cls = "err"; text = "5G link down"; }
     if (transport === "poll") text += " · polling";
   }
 

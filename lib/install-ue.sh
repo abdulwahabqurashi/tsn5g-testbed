@@ -118,6 +118,6 @@ ue_summary() {
     Logs        journalctl -u tsn5g-ue -f
     Tools       $PREFIX/tools/  (demo-run.sh, camera-loss-check.sh, ...)
 
-  Next: in the UI, Connection -> Bring up; then $PREFIX/tools/camera-loss-check.sh
+  Next: in the UI, 5G Link -> Bring up; then Tests -> Run
 EOF
 }
