@@ -548,3 +548,58 @@ body { font-family: var(--font-ui); font-size: var(--fs-body); }
 }
 .gate-slot { display: block; height: 100%; flex: none; }
 .gate-slot + .gate-slot { border-left: 1px solid var(--panel); }
+
+/* ---- Observability blocks (Time Sync, Tests) ------------------------------
+   UniFi-style: a path strip, metric chips over a chart, a health strip under
+   it, an event list. Colours come from tokens only. */
+.card.col4 { grid-column: span 4; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.chip { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--panel-2); font-size: .76rem; color: var(--soft); white-space: nowrap; }
+.chip i { width: 12px; height: 3px; border-radius: 2px; display: inline-block; }
+.chip b { color: var(--ink); font-weight: 700; }
+.health-strip { display: flex; gap: 1px; height: 8px; border-radius: 5px; overflow: hidden;
+  background: var(--chart-track); margin-top: 10px; }
+.health-strip span { flex: 1; min-width: 1px; }
+.hs-ok { background: var(--green); } .hs-warn { background: var(--amber); }
+.hs-err { background: var(--red); } .hs-off { background: var(--line-strong); }
+.axis-row { display: flex; justify-content: space-between; font-size: .68rem; color: var(--faint); margin-top: 4px; }
+.big-num { font-size: 2.3rem; font-weight: 800; letter-spacing: -.02em; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.big-num small { font-size: .85rem; font-weight: 600; color: var(--faint); margin-left: 4px; }
+.kpi .kpi-sub { font-size: .72rem; color: var(--faint); margin-top: 2px; }
+.ev-list { display: flex; flex-direction: column; max-height: 300px; overflow-y: auto; }
+.ev { display: grid; grid-template-columns: 14px 1fr auto; gap: 10px; align-items: center;
+  padding: 8px 2px; border-bottom: 1px solid var(--line-2); font-size: .84rem; }
+.ev:last-child { border-bottom: 0; }
+.ev .ev-t { color: var(--faint); font-size: .74rem; font-variant-numeric: tabular-nums; }
+.ev-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+.ev-dot.ok { background: var(--green); } .ev-dot.warn { background: var(--amber); } .ev-dot.err { background: var(--red); }
+.topo-node.ok .tn-ic { border-color: var(--green); color: var(--green); background: var(--green-soft); }
+.topo-node.warn .tn-ic { border-color: var(--amber); color: var(--amber-ink); background: var(--amber-soft); }
+.topo-node.err .tn-ic { border-color: var(--red); color: var(--red-ink); background: var(--red-soft); }
+.topo-link.ok .tl-line { background: var(--green); } .topo-link.ok .tl-q { color: var(--green-ink); }
+.topo-link.warn .tl-line { background: var(--amber); } .topo-link.warn .tl-q { color: var(--amber-ink); }
+.topo-link.err .tl-line { background: var(--red); } .topo-link.err .tl-q { color: var(--red-ink); }
+.run-list { display: flex; flex-direction: column; gap: 6px; max-height: 640px; overflow-y: auto; }
+.run-item { text-align: left; border: 1px solid var(--line); background: var(--panel); border-radius: 10px;
+  padding: 9px 12px; cursor: pointer; display: grid; gap: 2px; font: inherit; color: inherit; }
+.run-item:hover { border-color: var(--line-strong); }
+.run-item.on { border-color: var(--blue); background: var(--blue-soft); }
+.run-item .ri-top { display: flex; justify-content: space-between; gap: 8px; font-size: .84rem; font-weight: 700; }
+.run-item .ri-when { color: var(--faint); font-weight: 500; font-size: .74rem; }
+.run-item .ri-head { color: var(--soft); font-size: .78rem; }
+.bar-cell { display: flex; align-items: center; gap: 8px; min-width: 120px; }
+.bar-cell .bc-track { flex: 1; height: 6px; border-radius: 4px; background: var(--chart-track); overflow: hidden; }
+.bar-cell .bc-fill { height: 100%; border-radius: 4px; }
+.bar-cell .bc-val { font-variant-numeric: tabular-nums; font-size: .8rem; min-width: 56px; text-align: right; }
+.heat { width: 100%; height: auto; display: block; }
+.heat-scale { display: flex; align-items: center; gap: 8px; font-size: .7rem; color: var(--faint); }
+.heat-scale .hsc { width: 120px; height: 8px; border-radius: 4px; }
+details.setup > summary { cursor: pointer; font-weight: 700; list-style: none; display: flex;
+  align-items: center; justify-content: space-between; }
+details.setup > summary::-webkit-details-marker { display: none; }
+details.setup[open] > summary { margin-bottom: 14px; }
+@media (max-width: 900px) { .card.col4 { grid-column: span 12; } }
+/* the timeline's .tl-line would otherwise size the path links */
+.topo .topo-link .tl-line { height: 3px; min-height: 0; width: 100%; flex: none; border-radius: 2px; margin: 0; }
+.topo .topo-link { justify-content: center; padding: 0 6px; }

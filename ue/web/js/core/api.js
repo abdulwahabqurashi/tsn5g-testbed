@@ -202,11 +202,17 @@ export function createApi({ base = "", timeout = 8000, fetchImpl, onCall } = {})
       stop: (o) => POST("/api/gptp/stop", {}, o),
       restart: (o) => POST("/api/gptp/restart", {}, o),
       status: (o) => GET("/api/ptp/status", o),
+      history: (minutes, o) => GET("/api/ptp/history", { ...o, query: { minutes } }),
       settings: (o) => GET("/api/ptp/settings", o),
       saveSettings: (body, o) => PUT("/api/ptp/settings", body, o),
       nics: (o) => GET("/api/ptp/nics", o),
       install: (o) => POST("/api/ptp/dependencies/install", {}, o),
       setup: (body, o) => POST("/api/ptp/setup", body, { ...o, timeout: 15000 }),
+    },
+
+    results: {
+      list: (o) => GET("/api/results", o),
+      get: (kind, id, o) => GET(`/api/results/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`, o),
     },
 
     tas: {

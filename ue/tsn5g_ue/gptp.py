@@ -32,6 +32,8 @@ import re
 import subprocess
 import tempfile
 import threading
+import time
+from collections import deque
 
 from . import utils
 
@@ -166,6 +168,41 @@ class GptpManager:
         self._made_vlan = None          # only tear down a VLAN we created
         self._ntp_was_active = False    # restored by stop()
         self.status = self._blank_status()
+        # One sample a second for the last hour, and the lock/unlock events, so
+        # the Time Sync page opens on a history instead of an empty chart.
+        self.samples = deque(maxlen=3600)
+        self.events = deque(maxlen=300)
+        threading.Thread(target=self._sample_loop, name="ptp-history", daemon=True).start()
+
+    def _sample_loop(self):
+        prev = {}
+        names = {"running": ("PTP started", "PTP stopped"),
+                 "locked": ("NIC clock locked to the grandmaster", "NIC clock lost lock"),
+                 "sys_locked": ("System clock locked to the NIC", "System clock lost lock")}
+        while True:
+            time.sleep(1.0)
+            st = self.status
+            now = time.time()
+            for key, (up, down) in names.items():
+                v = bool(st.get(key))
+                if key in prev and v != prev[key]:
+                    self.events.append({"t": now, "kind": "ok" if v else "warn",
+                                        "text": up if v else down})
+                prev[key] = v
+            gm = st.get("grandmaster")
+            if prev.get("gm") and gm and gm != prev["gm"]:
+                self.events.append({"t": now, "kind": "warn", "text": f"grandmaster changed to {gm}"})
+            prev["gm"] = gm or prev.get("gm")
+            if st.get("running"):
+                self.samples.append({"t": round(now, 1), "off": st.get("offset_ns"),
+                                     "sys": st.get("sys_offset_ns"), "delay": st.get("path_delay_ns"),
+                                     "lock": bool(st.get("locked")), "sys_lock": bool(st.get("sys_locked"))})
+
+    def history(self, minutes=60):
+        """Samples and events from the last `minutes`."""
+        since = time.time() - minutes * 60
+        return {"samples": [x for x in list(self.samples) if x["t"] >= since],
+                "events": [e for e in list(self.events) if e["t"] >= since]}
 
     def _blank_status(self):
         return {"running": False, "locked": False, "servo": None,

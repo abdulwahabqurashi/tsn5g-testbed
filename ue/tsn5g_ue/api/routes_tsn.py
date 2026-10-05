@@ -132,6 +132,15 @@ def register(router):
                 "note": ("saved; restart PTP to apply" if running
                          else "saved; applies when PTP starts")}
 
+    @router.get("/api/ptp/history")
+    def ptp_history(req):
+        """Offsets once a second and lock/unlock events, for the charts."""
+        try:
+            minutes = max(1, min(60, int((req.query.get("minutes") or ["60"])[0])))
+        except ValueError:
+            minutes = 60
+        return req.ctx.controller.gptp.history(minutes)
+
     @router.get("/api/ptp/status")
     def ptp_status(req):
         """Clock state, and whether it is fit to anchor a gate schedule.

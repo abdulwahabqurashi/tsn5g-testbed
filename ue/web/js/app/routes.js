@@ -92,6 +92,14 @@ export const ROUTES = [
     load: () => import("../views/cameras.js"),
   },
   {
+    name: "tests",
+    path: "/tests",
+    title: "Tests",
+    icon: "pulse",
+    section: "testing",
+    load: () => import("../views/tests.js"),
+  },
+  {
     name: "logs",
     path: "/logs",
     title: "Logs",
