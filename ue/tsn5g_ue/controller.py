@@ -356,6 +356,11 @@ class Controller:
             link = bool(self.bearer._current_address())   # noqa: SLF001 — cheap, no QMI
         except Exception:                                  # noqa: BLE001
             link = False
+        # An address is not a working link: if the core has stopped answering
+        # the latency probe for 30 s, nothing is crossing the radio.
+        silent = self.latency.core_silent_s() if getattr(self, "latency", None) else None
+        if link and silent is not None and silent > 30:
+            link = False
         checks = {"modem": self.modem.check_health() if self.modem else False,
                   "link": link,
                   "gptp": self.gptp.check_health() if self.gptp else True}

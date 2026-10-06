@@ -71,7 +71,8 @@ export default defineView({
     function paintTop() {
       const s = view.store.get();
       const sig = s.signal.latest || s.status?.modem?.signal || {};
-      const linkUp = bearer?.state === "up";
+      const stale = bearer?.state === "up" && lat?.core_silent_s > 30;   // up on paper, nothing gets through
+      const linkUp = bearer?.state === "up" && !stale;
       const cur = lat?.current || {};
       const coreOk = linkUp && lat?.reflector;
       const camNames = Object.keys(cams);
@@ -96,7 +97,8 @@ export default defineView({
       const g = ptp || {};
       const off = g.running ? Math.abs(g.offset_ns ?? NaN) : null;
       fill(tiles,
-        tile("5G link", linkUp ? "Online" : "Offline", linkUp ? `${bearer.apn || ""} · MTU ${bearer.mtu || "?"}` : "open 5G Link to connect",
+        tile("5G link", linkUp ? "Online" : stale ? "No traffic" : "Offline",
+          linkUp ? `${bearer.apn || ""} · MTU ${bearer.mtu || "?"}` : stale ? "session stale: rebuild it on 5G Link" : "open 5G Link to connect",
           linkUp ? "ok" : "err"),
         tile("Uplink now", ul == null ? "—" : `${ul.toFixed(1)}`, "Mbit/s on the 5G link"),
         tile("Camera 1 delay", cur.protected?.up_p50 != null ? `${cur.protected.up_p50} ms` : "—",
@@ -134,7 +136,11 @@ export default defineView({
       const items = [];
       const add = (level, text, href, action) => items.push({ level, text, href, action });
       if (bearer && bearer.state !== "up") add("err", "The 5G data call is down", "#/network", "Connect");
-      if (lat?.config?.enabled && bearer?.state === "up" && !lat.reflector) {
+      else if (lat?.core_silent_s > 30) {
+        add("err", `Nothing has reached the core for ${Math.round(lat.core_silent_s)} s — the session is stale`,
+            "#/network", "Rebuild session");
+      }
+      if (lat?.config?.enabled && bearer?.state === "up" && !lat.reflector && !(lat.core_silent_s > 30)) {
         add("warn", "No latency replies from the core (reflector not running)", null, null);
       }
       if (ptp && !ptp.running) add("warn", "PTP is not running on the UE", "#/gptp", "Time Sync");

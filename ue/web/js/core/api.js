@@ -286,6 +286,7 @@ export function createApi({ base = "", timeout = 8000, fetchImpl, onCall } = {})
       up: (body, o) => POST("/api/bearer/up", body, o),
       down: (body, o) => POST("/api/bearer/down", body, o),
       cycle: (body, o) => POST("/api/bearer/cycle", body, o),
+      rebuild: (body, o) => POST("/api/bearer/rebuild", body, o),
       // Counts each DSCP as it leaves the bearer, after encapsulation. The
       // outer DSCP is what uplink QoS flow binding matches on, so this is the
       // evidence that the marking reaches the wire at all.

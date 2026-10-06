@@ -53,6 +53,7 @@ class LatencyProbe:
         self.sports = {"protected": int(gbr_sport), "best_effort": int(self.cfg["best_effort_sport"])}
         self.history = {lane: deque(maxlen=3600) for lane in LANES}      # one row a second
         self.current = {lane: None for lane in LANES}
+        self._started = self._last_reply = None
         self.state = {"running": False, "bound_to": None, "reason": None, "reflector": False}
         self._stop = threading.Event()
         self._thread = None
@@ -90,8 +91,22 @@ class LatencyProbe:
         return dict(self.cfg)
 
     # -- read model ---------------------------------------------------------------
+    def core_silent_s(self):
+        """Seconds the core has not answered while the probe is sending, else None.
+
+        A data call can look up (address, routes, QMI handle) while nothing
+        crosses the radio: on 6 Oct the gNB restarted and the modem never
+        reconnected, and the UE reported "up" for five hours.
+        """
+        if not self.state.get("running") or not self.state.get("bound_to"):
+            return None
+        since = self._last_reply or self._started
+        return round(time.monotonic() - since, 1) if since else None
+
     def status(self):
-        return {**self.state, "config": dict(self.cfg), "target": self.target,
+        silent = self.core_silent_s()
+        self.state["reflector"] = silent is not None and silent < 10
+        return {**self.state, "core_silent_s": silent, "config": dict(self.cfg), "target": self.target,
                 "source_ports": self.sports, "current": self.current}
 
     def get_history(self, minutes=15):
@@ -119,6 +134,7 @@ class LatencyProbe:
 
     def _run(self):
         self.state.update(running=True, reason=None)
+        self._started, self._last_reply = time.monotonic(), None
         socks, addr, seq = {}, None, 0
         self._rule("add", self.sports["protected"])
         try:
@@ -184,6 +200,7 @@ class LatencyProbe:
         if self._pending.pop((lane, seq), None) is None:
             return
         self.state["reflector"] = True
+        self._last_reply = time.monotonic()
         self._sec[lane].append(((c_rx - t_tx) / 1e6, (t_rx - c_tx) / 1e6))
 
     def _roll(self, sec_end):

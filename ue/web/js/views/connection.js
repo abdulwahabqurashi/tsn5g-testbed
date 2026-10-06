@@ -128,6 +128,11 @@ export default defineView({
         kind: "primary", onclick: up ? cycle : bringUp,
         disabled: Boolean(activeJob),
       }));
+      actions.appendChild(button("Rebuild session", {
+        onclick: rebuild, disabled: Boolean(activeJob),
+        title: "Re-registers the modem and builds a new 5G session. Use it when the call "
+             + "looks up but nothing gets through, or after a QoS change on the core.",
+      }));
       actions.appendChild(button("Take down", {
         kind: "danger", onclick: takeDown, disabled: !up || Boolean(activeJob),
       }));
@@ -242,6 +247,23 @@ export default defineView({
       const body = { confirm: true };
       if (apnInput.value.trim()) body.apn = apnInput.value.trim();
       await run(() => view.api.bearer.cycle(body, { signal: view.signal }), "restarting");
+    }
+
+    async function rebuild() {
+      const ok = await confirm({
+        title: "Rebuild the 5G session?",
+        body: "The modem re-registers with the network and a new session is built. "
+            + "The link is down for about a minute. Use this when the call looks up but "
+            + "nothing reaches the core (for example after the gNB restarted), or after "
+            + "a QoS change on the core.",
+        confirmLabel: "Rebuild",
+        danger: true,
+      });
+      if (!ok) return;
+      clear(logPane);
+      const body = { confirm: true };
+      if (apnInput.value.trim()) body.apn = apnInput.value.trim();
+      await run(() => view.api.bearer.rebuild(body, { signal: view.signal }), "rebuilding");
     }
 
     async function cancel() {

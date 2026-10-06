@@ -6,7 +6,8 @@ back**. To read one commit in full: `git show <hash>`.
 
 | # | Commit | Title |
 |---|---|---|
-| 16 | *(see `git log -- tools/camera-loss-check.sh`)* | One-click tests fixed for real runs; camera loss check on the console |
+| 17 | *(see `git log -- ue/tsn5g_ue/net/latency.py`)* | A stale 5G session is detected and rebuilt with one click |
+| 16 | `6773581` | One-click tests fixed for real runs; camera loss check on the console |
 | 15 | `ce0ee7e` | Console revamp: 8 pages, one-click tests |
 | 14 | `9576362` | Cameras at 20 fps, fixed addresses; auto-rate measures only the radio |
 | 13 | `d5e99ad` | Live one-way latency; visual pages; cameras keep their address |
@@ -25,6 +26,34 @@ back**. To read one commit in full: `git show <hash>`.
 
 Before these, `git log -- ue/` shows the UE application's own 40 commits
 (`cab4d17` … `fe7c587`).
+
+---
+
+## 17 — A stale 5G session is detected and rebuilt with one click
+
+**What**
+- The latency probe tracks when the core last answered (`core_silent_s` in
+  `GET /api/latency`).
+- Health counts the link as down once the core has been silent for 30 s,
+  even though the data call still has an address.
+- Overview: the 5G link tile says **No traffic**, and "Needs attention"
+  links to the fix.
+- 5G Link → Data call has a **Rebuild session** button
+  (`POST /api/bearer/rebuild`). It re-registers the modem (AT+CFUN=0/1) and
+  builds a new PDU session.
+
+**Why** — on 6 Oct the gNB restarted at 09:57 and the modem never
+reconnected: the gNB showed `nof_ues=0` and no attach attempts at all. The UE
+reported the call as up for five hours while nothing crossed the radio. The
+only fix was a session rebuild, which the console had no button for.
+
+**Deploy** — `sudo ./install.sh ue`.
+
+**Verify** — with the gNB stopped, the Overview shows *No traffic* within
+about 30 s. **Rebuild session** after the gNB is back brings the latency
+chart back.
+
+**Roll back** — `git revert` and `sudo ./install.sh ue`.
 
 ---
 
