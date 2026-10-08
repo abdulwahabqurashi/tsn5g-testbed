@@ -1,98 +1,73 @@
-> **First rig, 2026-09-30.** Interface names below are that server's. On a new
-> site set `CORE_PTP_IF` in site.env and run `sudo core/ptp/install-ptp.sh`.
+# core/ptp — wired PTP on the core
 
-# PTP / time synchronisation setup — staged 2026-09-30
-
-## Why this is not done yet: two blockers
-
-**1. The only hardware-PTP-capable ports are unplugged.**
-
-| Interface | PHC | Timestamping | Link |
-|---|---|---|---|
-| `enp37s0f0np0` | **/dev/ptp0** | **hardware** tx+rx, raw clock | **down, carrier=0** |
-| `enp37s0f1np1` | /dev/ptp0 | hardware | down, carrier=0 |
-| `enp109s0f0np0` (mgmt) | none | software only | up |
-| `enp109s0f1np1` (X410 fronthaul) | none | software only | up |
-
-`/dev/ptp0` is `ice-0000:25:00.0-clk` — Intel E810, driver `ice`, fw 4.40.
-**Software-only timestamping gives tens of microseconds and is not usable for TSN.**
-So PTP must run on `enp37s0f0np0`, which needs a cable to the TSN switch / grandmaster.
-
-**2. `linuxptp` is not installed** — no `ptp4l`, `phc2sys`, `pmc`, `phc_ctl`, `ts2phc`.
-
-## The trap: phc2sys alone does nothing
-
-`upf_nwtt_detect_phc2sys()` (`src/upf/nwtt.c:87`) runs literally:
-
-```c
-fp = popen("pgrep -x phc2sys 2>/dev/null", "r");
-```
-
-It only sets a flag that changes **a log line**. The clock actually used comes from
-`clock_source` in `upf.yaml`, and the source comment at `nwtt.c:33-38` is explicit:
-
-> CLOCK_MONOTONIC_RAW is not affected by NTP/phc2sys adjustments.
-> When phc2sys is running ... the user can select CLOCK_REALTIME.
-
-Current setting is `clock_source: monotonic`. **If you start phc2sys without changing
-it, the UPF will log "phc2sys detected: system clock is PHC-synchronized" while
-timestamps still come from an unsynchronised raw clock.** False confidence.
-
-## Order of operations
-
-1. **Cable `enp37s0f0np0`** to the TSN switch / grandmaster. Verify:
-   `cat /sys/class/net/enp37s0f0np0/carrier` must return `1`.
-2. `sudo ./install-ptp.sh` — installs linuxptp, config, and both systemd units.
-   It refuses to run if there is no carrier.
-3. **Edit `upf.yaml`** (see below) — without this, step 2 achieves nothing measurable.
-4. Restart the UPF and confirm the log line changed.
-
-## Required upf.yaml change
-
-Runtime file: `~/tsntestbed/Open5GS-TSN-ACIA-master/build/configs/open5gs/upf.yaml`
-(also update `configs/open5gs/upf.yaml.in`, or a `meson --reconfigure` reverts it).
-
-```yaml
-  nwtt:
-    timestamp:
-      clock_source: realtime           # was: monotonic
-      phc_interface: enp37s0f0np0      # optional; UPF logs whether it exists
-```
-
-Valid `clock_source` values (`src/upf/context.c:281`): `monotonic` /
-`CLOCK_MONOTONIC_RAW`, `realtime` / `CLOCK_REALTIME`. Anything else silently falls
-back to SOFTWARE. Unknown keys under `timestamp:` only warn — unlike the gNB config,
-they are not fatal.
-
-## Verification
+One command:
 
 ```bash
-# PTP is locked (offset should settle to tens/hundreds of ns, not µs)
-journalctl -u ptp4l-gptp -f          # look for "rms" converging
-journalctl -u phc2sys-gptp -f
-pmc -u -b 0 'GET TIME_STATUS_NP'     # gmPresent, master_offset
-
-# UPF picked it up
-grep -a 'NW-TT' /var/local/log/open5gs/upf.log | tail -5
-# want: "phc2sys detected: system clock is PHC-synchronized"
-#       "Timestamp source: CLOCK_REALTIME"
+sudo core/ptp/setup-ptp.sh --iface "$CORE_PTP_IF"      # enp37s0f0np0 here
+sudo core/ptp/setup-ptp.sh --iface enp37s0f0np0 --detect-only   # probe, change nothing
 ```
 
-## Decisions still needed
+It finds the grandmaster on the wire, writes `/etc/linuxptp/ptp4l-tsn.conf`,
+installs `ptp4l-tsn.service` and `phc2sys-tsn.service`, grants the WebUI a
+narrow sudo right to start/stop them, and waits for servo state `s2`.
 
-- **Profile.** `ptp4l-gptp.conf` assumes **gPTP / IEEE 802.1AS** (L2 transport, P2P
-  delay, `01:80:C2:00:00:0E`, domain 0). This matches `upf.yaml`'s
-  `gptp.time_domain_number: 0`. If the TSN switches run plain IEEE 1588 default
-  profile instead (UDP/IPv4, E2E delay), the config must change.
-- **Role.** Config sets `slaveOnly 1` — this host is a *client* of the network's
-  grandmaster. If this host should *be* the grandmaster, remove `slaveOnly` and lower
-  `priority1` (e.g. 128).
-- **Which switch port** `enp37s0f0np0` connects to, and whether that port is in the
-  same PTP domain as the two switches' wired sideband.
+## Measured on this rig (2026-10-05)
 
-## Context
+| | |
+|---|---|
+| Port | `enp37s0f0np0` — Intel E810 (`ice`), `/dev/ptp0` |
+| Profile | **IEEE 1588 Annex F over L2**, untagged, domain 0 |
+| Destination MAC | `01:1b:19:00:00:00` |
+| Grandmaster | `000580.fffe.087a51` — the same clock the UE follows |
+| NIC → GM | mean 28.6 ns |
+| System clock → UTC | mean 20.9 ns |
+| Path delay | 1881 ns |
 
-Checklist item E1 asks whether anything synchronises the switches to the gNB's frame
-timing. Nothing does, and this work does not change that — **PTP here disciplines the
-UPF's NW-TT timestamps, not the gNB's radio frame timing.** The two remain
-independent. See `VERIFICATION-STATUS.md` U10.
+Both services are enabled, so PTP survives a reboot.
+
+## Four things that cost a day, in order of how much
+
+**1. Never pass `-w` to phc2sys here.** It reads the UTC offset from ptp4l over
+the management interface and **silently overrides `-O`**. This grandmaster
+advertises the ARB timescale (`ptp4l` logs *"foreign master not using PTP
+timescale"*), so ptp4l has no valid offset to give, phc2sys applies 0, and the
+system clock is steered to the PHC itself — i.e. to TAI. Observed: the clock
+marched 6 seconds into the future in under a minute, **reporting `s2` the whole
+time**. `s2` means "tracking something", not "tracking the right thing".
+
+**2. The grandmaster runs TAI, exactly UTC+37.** `phc_ctl /dev/ptp0 cmp` gave
+`-37000174971 ns`. So phc2sys needs `-O -37`; with the default `-O 0` the host
+sits 37 s in the future and nothing reports an error. The UE independently
+arrived at the same value.
+
+**3. This is NOT 802.1AS.** The earlier `install-ptp.sh` / `ptp4l-gptp.conf` in
+this directory assumed gPTP (P2P delay, `transportSpecific 0x1`,
+`01:80:C2:00:00:0E`). Against a 1588 grandmaster that mismatch is silent —
+ptp4l simply never leaves `s0`. `setup-ptp.sh` decides the profile from the
+**destination MAC**, which is unambiguous and survives VLAN tags.
+
+**4. The grandmaster announces slowly.** With `logAnnounceInterval 0` (expect
+1/s) ptp4l found the GM, hit `ANNOUNCE_RECEIPT_TIMEOUT_EXPIRES` and dropped back
+to LISTENING in a loop — which looks exactly like a profile mismatch and is not.
+Defaults are now `logAnnounceInterval 1` + `announceReceiptTimeout 10` (20 s of
+tolerance); `--announce-interval` / `--announce-timeout` override them.
+
+## VLAN
+
+The core's switch port is an **untagged access port** in the PTP VLAN, so no
+VLAN is configured here — `--vlan` exists for a trunk port. The UE runs tagged
+on VLAN 4011; the two ends may differ, the switch handles it. Note
+`<parent>.<vlan>` can exceed the 15-character interface-name limit
+(`enp37s0f0np0.4011` is 20), so the script falls back to `ptp<vlan>`.
+
+## Why the WebUI drives systemd instead of spawning ptp4l
+
+The WebUI runs unprivileged; ptp4l needs `CAP_NET_RAW`, `CAP_NET_ADMIN` and
+write access to `/dev/ptpN`. Rather than run the UI as root, `setup-ptp.sh`
+installs `/etc/sudoers.d/open5gs-webui-ptp` granting exactly start/stop/restart
+of the two units plus one **read-only** `systemctl show --property=Id` — the
+readiness panel needs a way to prove it holds the permission without starting
+anything. `tcpdump` is deliberately **not** granted: it would let the UI capture
+traffic on any interface. Detection stays a command a human runs.
+
+Status and control: WebUI → **Time Sync** → *PTP setup*.
