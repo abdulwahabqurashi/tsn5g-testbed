@@ -1,0 +1,15 @@
+# Rendered from core/systemd/tsn5g-nwtt.service.in by install.sh core
+# NW-TT: the core's ends of the UE's camera tunnels (VXLAN 70/80 -> VLAN 70/80).
+[Unit]
+Description=TSN-5G NW-TT: VXLAN endpoints for the UE's camera tunnels
+After=network-online.target tsn5g-core-net.service
+Wants=tsn5g-core-net.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=${PREFIX}/core/scripts/nw-tt.sh up
+ExecStop=${PREFIX}/core/scripts/nw-tt.sh down
+
+[Install]
+WantedBy=multi-user.target

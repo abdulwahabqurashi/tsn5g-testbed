@@ -110,6 +110,38 @@ cameras:
     netns: ${CAM2_NETNS}               # scripts/camera2-netns.sh moves the NIC here
     stream_port: ${CAM2_PORT}        # matches egress_classes -> best effort
 
+# ---------------------------------------------------------------------------
+# The cameras' video path (net/campath.py). direct: UDP straight over the
+# bearer. vxlan: one VLAN-tagged VXLAN tunnel per camera to the core's
+# endpoint (NW-TT), which bridges VLAN 70/80 to the video server. Switch it on
+# the Cameras page; the choice is saved. The core side is core/vxlan/README.md.
+# ---------------------------------------------------------------------------
+camera_path:
+  mode: direct
+  remote: ${CORE_BEARER_IP}
+  dstport: 4789
+  tunnels:
+    - camera: camera1
+      name: cam1
+      vlan: 70
+      vni: 70
+      pcp: 4                 # 802.1Q "video"
+      dscp: 34               # AF41 on the outer header
+      srcport: ${GBR_SOURCE_PORT}   # outer source port: keeps camera 1 on the GBR flow (QFI 2)
+      lane: protected
+      ue_ip: 10.70.0.2/24
+      server_ip: 10.70.0.1
+    - camera: camera2
+      name: cam2
+      vlan: 80
+      vni: 80
+      pcp: 0
+      dscp: 0
+      srcport: 5212
+      lane: best_effort
+      ue_ip: 10.80.0.2/24
+      server_ip: 10.80.0.1
+
 transport:
   mode: vxlan
 vxlan:

@@ -167,7 +167,7 @@ def read_tos(dev):
 
 
 def vxlan_add(name, vni, underlay, local, remote, dstport=4789, dscp=None,
-              mtu=None):
+              mtu=None, srcport=None):
     """A VXLAN tunnel, optionally stamping a fixed DSCP on the outer header.
 
     The outer DSCP is the only priority marking the 5G system can act on: the
@@ -188,6 +188,11 @@ def vxlan_add(name, vni, underlay, local, remote, dstport=4789, dscp=None,
             "dstport", str(dstport)]
     if dscp is not None:
         argv += ["tos", tos_arg(dscp)]
+    if srcport:
+        # A one-port range pins the outer source port (the kernel picks in
+        # [min, max)). The core's GBR rule matches the UE's source port, so
+        # this is what puts a tunnel on the GBR flow.
+        argv += ["srcport", str(int(srcport)), str(int(srcport) + 1)]
     _run(argv)
     if mtu:
         set_mtu(name, mtu)

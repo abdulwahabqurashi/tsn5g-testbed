@@ -216,6 +216,11 @@ export function createApi({ base = "", timeout = 8000, fetchImpl, onCall } = {})
       set: (body, o) => PUT("/api/latency", body, o),
     },
 
+    campath: {
+      get: (o) => GET("/api/campath", o),
+      set: (body, o) => POST("/api/campath", body, o),
+    },
+
     tests: {
       catalog: (o) => GET("/api/tests", o),
       run: (id, params, o) => POST(`/api/tests/${encodeURIComponent(id)}/run`, { params }, o),

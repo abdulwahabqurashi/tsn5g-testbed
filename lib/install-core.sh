@@ -7,7 +7,7 @@
 #
 # Set SKIP_BUILD=1 to skip step 3 (e.g. re-rendering configs after editing site.env).
 
-CORE_UNITS=(tsn5g-core-net.service open5gs.target open5gs-webui.service srsran-gnb.service tsn-health.timer tsn5g-latency-reflector.service)
+CORE_UNITS=(tsn5g-core-net.service open5gs.target open5gs-webui.service srsran-gnb.service tsn-health.timer tsn5g-latency-reflector.service tsn5g-nwtt.service)
 O5GS_NFS="nrf scp ausf udm udr pcf nssf bsf amf smf upf tsn-af"
 
 install_core() {

@@ -505,6 +505,24 @@ def register_all(jobs, controller):
     jobs.register("rig.press_start", rig_press_start, LANE_NET)
     jobs.register("rig.units_install", rig_units_install, LANE_NET, confirm=True)
 
+    # -- the cameras' video path ------------------------------------------
+    def campath_set(ctx):
+        mode = ctx.params.get("mode")
+        ctx.plan(["tunnels", "encoders"])
+        ctx.step("tunnels", "building the VLAN/VXLAN tunnels" if mode == "vxlan"
+                 else "removing the tunnels; back to direct UDP")
+        restart = controller.campath.set_mode(mode, log=ctx.log)
+        ctx.step("encoders", "restarting the encoders on the new destination" if restart
+                 else "encoders already point the right way")
+        if restart:
+            rig.encoders("start", ctx.log, camera_entries=controller.config.cameras,
+                         bearer=controller.bearer)
+        return controller.campath.status()
+
+    jobs.register("campath.set", campath_set, LANE_NET, confirm=True,
+                  explain="Switching the video path restarts both camera encoders: "
+                          "both streams stop for a few seconds.")
+
     # -- measurement tools, one click each ---------------------------------
     from . import testrun
 

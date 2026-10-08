@@ -43,6 +43,7 @@ DESKTOP_USER = "amrc"
 UE_LAN_IP = ""
 GBR_SOURCE_PORT = 5202
 ENCODER_CONFIGS = ("camera1-protected", "camera2-besteffort")
+ENCODER_DIR = "/opt/tsn5g/video/encoder/pathStream1"
 
 UNIT_NETNS = "tsn5g-cam2-netns.service"
 UNIT_DISPLAY = "tsn5g-vnc-display.service"
@@ -57,7 +58,7 @@ class RigError(RuntimeError):
 def configure(cfg):
     """Take site values from the daemon config's `rig:` section."""
     global NS, NS_NIC, VETH_ROOT, VETH_NET, BEARER, CORE_IP, DISPLAY, VNC_PORT
-    global DESKTOP_USER, UE_LAN_IP, GBR_SOURCE_PORT
+    global DESKTOP_USER, UE_LAN_IP, GBR_SOURCE_PORT, ENCODER_DIR
     cfg = cfg or {}
     NS = cfg.get("netns", NS)
     NS_NIC = cfg.get("netns_nic", NS_NIC)
@@ -70,6 +71,7 @@ def configure(cfg):
     DESKTOP_USER = cfg.get("desktop_user", DESKTOP_USER)
     UE_LAN_IP = cfg.get("ue_lan_ip", UE_LAN_IP)
     GBR_SOURCE_PORT = int(cfg.get("gbr_source_port", GBR_SOURCE_PORT))
+    ENCODER_DIR = cfg.get("encoder_dir", ENCODER_DIR)
 
 
 def vnc_hint():

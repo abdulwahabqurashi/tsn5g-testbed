@@ -98,6 +98,11 @@ class Controller:
         # the new one is proven.
         self.tsnbridge = BridgeManager(config, bearer=self.bearer)
         self.tas = TasManager(config.as_dict().get("tas", {}))
+        # The cameras' video path: direct UDP, or VLAN-tagged in VXLAN tunnels.
+        from .net.campath import CameraPath
+        self.campath = CameraPath(config.as_dict().get("camera_path"), self.bearer,
+                                  config.cameras, config=config,
+                                  before_build=self._legacy_overlay_off)
         self.speedtest = SpeedTest(config.as_dict().get("speedtest", {}))
         self.netiface = NetIfaceManager(
             {"wwan_interface": config.modem.get("wwan_interface", "wwan0")},
@@ -152,6 +157,7 @@ class Controller:
             logger.error("latency probe did not start: %s", exc)
         logger.info("controller ready — state=%s", self.state)
         self.resume()
+        self.campath.reapply()
 
     def _apply_cameras(self):
         """Address the camera NICs and confirm the right camera is behind each.
@@ -174,8 +180,26 @@ class Controller:
         except Exception as exc:            # noqa: BLE001
             logger.warning("could not set up the camera interfaces: %s", exc)
 
+    def _legacy_overlay_off(self, log=logger.info):
+        """Stop the old VXLAN overlay, without forgetting that we are connected.
+
+        It holds VNI 70/80 on port 4789 with nothing at the far end, so the
+        camera tunnels cannot be created while it exists. transport_stop()
+        would also clear the auto-resume flag, which is not wanted here.
+        """
+        if self.transport and self.active_mode == "vxlan":
+            self.transport.stop()
+            self.transport = None
+            self.active_mode = None
+            log("stopped the old VXLAN overlay (vxlan60/70/80): the camera tunnels replace it")
+
     def _on_bearer_change(self, state):
         """Called after every successful bring-up."""
+        # A new data call means a new address: the camera tunnels' local end moved.
+        try:
+            self.campath.reapply()
+        except Exception as exc:            # noqa: BLE001
+            logger.warning("could not rebuild the camera tunnels: %s", exc)
         try:
             if self.routing.status().get("applied"):
                 logger.info("bearer address is now %s — re-applying routing",
@@ -228,7 +252,10 @@ class Controller:
             if persist:
                 self.state_store.save({"connected": True, "mode": mode, "dnn": dnn,
                                        "wired_nics": wired_nics, "role": role})
-            return self.transport.get_status()
+            status = self.transport.get_status()
+            # If the cameras use their own tunnels, they replace this overlay.
+            self.campath.reapply()
+            return status
         except Exception as exc:  # noqa: BLE001
             self.last_error = str(exc)
             self.state = C.STATE_ERROR

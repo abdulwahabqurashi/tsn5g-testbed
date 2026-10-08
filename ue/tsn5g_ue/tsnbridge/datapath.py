@@ -53,6 +53,8 @@ class Datapath:
         # The outer marking. None means "do not write one", which is what
         # every class did before this existed.
         self.dscp = spec.get("dscp")
+        # Fixed outer UDP source port, or None for the kernel's flow hash.
+        self.srcport = spec.get("srcport")
         # Named for where it lands: the gated end of the veth. The old
         # key is still read, because it names the same intent even though
         # the placement it described put the gate out of the path.
@@ -107,7 +109,8 @@ class Datapath:
         # 2. the tunnel
         netdev.vxlan_add(self.dev_vxlan, self.vni, self.underlay,
                          self.local_ip, self.remote_ip,
-                         dstport=self.dstport, dscp=self.dscp, mtu=self.mtu)
+                         dstport=self.dstport, dscp=self.dscp, mtu=self.mtu,
+                         srcport=self.srcport)
 
         # 3. the tag. This is the device the old transport never created, which
         #    is why its tunnels carried untagged frames and nothing downstream

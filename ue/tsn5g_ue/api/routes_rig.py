@@ -9,6 +9,7 @@ from .router import ApiError
 
 
 def register(router):
+    _register_campath(router)
 
     @router.get("/api/rig")
     def rig_status(req):
@@ -114,3 +115,19 @@ def register(router):
         return req.ctx.submit_job("rig.units_install", {
             "start_cameras": bool(req.body.get("start_cameras")),
             "confirm": req.confirmed or not req.body.get("start_cameras")})
+
+
+def _register_campath(router):
+
+    @router.get("/api/campath")
+    def campath_status(req):
+        """The cameras' video path (direct or VXLAN) and each tunnel's state."""
+        return req.ctx.controller.campath.status()
+
+    @router.post("/api/campath")
+    def campath_set(req):
+        """Switch the video path: {"mode": "direct" | "vxlan", "confirm": true}."""
+        mode = req.require("mode")
+        if mode not in ("direct", "vxlan"):
+            raise ApiError(400, f"mode must be direct or vxlan, not {mode!r}")
+        return req.ctx.submit_job("campath.set", {"mode": mode, "confirm": req.confirmed})

@@ -60,10 +60,14 @@ export default defineView({
     let setupWasDone = null;
     const liveHead = h("div", { class: "card-head" });
     const arHead = h("div", { class: "card-head" });
+    const pathHead = h("div", { class: "card-head" });
+    const pathBody = h("div");
+    let pathBusy = false;
     view.root.appendChild(h("div", { class: "grid" },
       setupCard,
       h("section", { class: "card col12" }, liveHead,
         h("div", { class: "live-split" }, liveBody, chartBody)),
+      h("section", { class: "card col12" }, pathHead, pathBody),
       h("section", { class: "card col12" }, arHead, arBody),
       h("details", { class: "card col12" },
         h("summary", { style: { cursor: "pointer", "font-weight": "600" },
@@ -363,6 +367,77 @@ export default defineView({
       arBody.append(left, right, mid);
     }
 
+    // ---- video path: direct UDP, or VLAN in VXLAN (DS-TT -> NW-TT) ---------------
+    async function setPath(mode) {
+      if (pathBusy) return;
+      const ok = await confirm({
+        title: mode === "vxlan" ? "Send the cameras through VLAN/VXLAN?" : "Send the cameras directly?",
+        body: (mode === "vxlan"
+          ? "Each camera gets its own tunnel: camera 1 on VLAN 70, camera 2 on VLAN 80, to the "
+            + "core's endpoint. Camera 1 stays on the GBR flow and the protected lane. "
+            + "Video only arrives if the core's VXLAN endpoint is set up."
+          : "The tunnels are removed and the encoders send UDP straight to the core again.")
+          + " Both camera streams stop for a few seconds while the encoders restart.",
+        confirmLabel: "Switch", danger: true });
+      if (!ok) return;
+      pathBusy = true; paintPath();
+      try {
+        const res = await view.api.campath.set({ mode, confirm: true }, { signal: view.signal });
+        for (let i = 0; i < 120 && res?.job_id; i += 1) {
+          await new Promise((r) => view.timeout(r, 1000));
+          const job = await view.api.jobs.get(res.job_id, { signal: view.signal });
+          if (!["queued", "running"].includes(job.state)) {
+            if (job.error) toast(job.error, "err"); else toast(mode === "vxlan" ? "cameras on VLAN/VXLAN" : "cameras direct", "ok");
+            break;
+          }
+        }
+      } catch (err) {
+        if (!(err instanceof ApiError && err.isAborted)) toast(err.message, "err");
+      } finally {
+        pathBusy = false; prev = null; paintPath();
+      }
+    }
+
+    async function paintPath() {
+      let c;
+      try {
+        c = await view.api.campath.get({ signal: view.signal });
+      } catch (err) {
+        if (!(err instanceof ApiError && err.isAborted)) fill(pathBody, h("p", { class: "muted", text: err.message }));
+        return;
+      }
+      const vx = c.mode === "vxlan";
+      fill(pathHead,
+        h("div", { class: "head-l" }, h("h3", { text: "Video path" }),
+          h("span", { class: "hint", text: vx ? "DS-TT: VLAN-tagged Ethernet in VXLAN to the core's NW-TT"
+                                             : "UDP straight to the core" })),
+        h("div", { class: "head-r" }, pathBusy ? badge("switching…", "blue") : null,
+          seg([{ value: "direct", label: "Direct" }, { value: "vxlan", label: "VLAN + VXLAN" }],
+              c.mode, (v) => { if (v !== c.mode) setPath(v); })));
+      clear(pathBody);
+      if (c.error) pathBody.appendChild(h("p", { class: "hint warn", text: c.error }));
+      if (!vx) {
+        pathBody.appendChild(h("p", { class: "muted", text:
+          "Switch to VLAN + VXLAN to carry each camera as tagged Ethernet: camera 1 on VLAN 70, camera 2 on VLAN 80." }));
+        return;
+      }
+      pathBody.appendChild(h("table", { class: "tbl" },
+        h("thead", null, h("tr", null, ...["Camera", "VLAN · PCP", "Tunnel", "5G flow · lane", "Tunnel up", "Core endpoint"]
+          .map((t) => h("th", { text: t })))),
+        h("tbody", null, ...c.tunnels.map((t) => h("tr", null,
+          h("td", { text: t.camera }),
+          h("td", { text: `${t.vlan} · ${t.pcp}` }),
+          h("td", { class: "mono", text: `VNI ${t.vni} → ${c.remote}:${c.dstport}` }),
+          h("td", { text: `${t.lane === "protected" ? "GBR (QFI 2)" : "default"} · ${t.lane === "protected" ? "protected" : "best effort"}` }),
+          h("td", null, badge(t.up ? "up" : "down", t.up ? "green" : "red")),
+          h("td", null, badge(t.server_reachable ? `${t.server_ip} answers` : `${t.server_ip} not answering`,
+                               t.server_reachable ? "green" : "amber")))))));
+      if (c.tunnels.some((t) => !t.server_reachable)) {
+        pathBody.appendChild(h("p", { class: "hint", text:
+          "Not answering means the core's VXLAN endpoint for that VLAN is missing or not bridged to the video server (core/vxlan/README.md)." }));
+      }
+    }
+
     // ---- cameras ---------------------------------------------------------------
     async function paintCameras() {
       try {
@@ -596,7 +671,8 @@ export default defineView({
       }
     }
 
-    await Promise.all([paintSetup(), paintRig(), paintCameras(), paintQueue(), paintAutorate()]);
+    await Promise.all([paintSetup(), paintRig(), paintCameras(), paintQueue(), paintAutorate(), paintPath()]);
+    view.interval(() => { if (!pathBusy) paintPath(); }, 5000);
     view.interval(() => { if (!fixing) paintSetup(); }, 4000);
     view.interval(paintAutorate, 2000);
     view.interval(paintRig, 10000);

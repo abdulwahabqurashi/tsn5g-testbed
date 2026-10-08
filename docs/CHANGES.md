@@ -6,7 +6,8 @@ back**. To read one commit in full: `git show <hash>`.
 
 | # | Commit | Title |
 |---|---|---|
-| 18 | *(see `git log -- ue/tsn5g_ue/watchdog.py`)* | gNB crash fixed (srsRAN patch 0002); the UE rebuilds a silent session by itself |
+| 19 | *(see `git log -- ue/tsn5g_ue/net/campath.py`)* | Cameras over VLAN 70/80 in VXLAN (DS-TT on the UE, NW-TT on the core) |
+| 18 | `f9fb14d` | gNB crash fixed (srsRAN patch 0002); the UE rebuilds a silent session by itself |
 | 17 | `27e9e60` | A stale 5G session is detected and rebuilt with one click |
 | 16 | `6773581` | One-click tests fixed for real runs; camera loss check on the console |
 | 15 | `ce0ee7e` | Console revamp: 8 pages, one-click tests |
@@ -27,6 +28,56 @@ back**. To read one commit in full: `git show <hash>`.
 
 Before these, `git log -- ue/` shows the UE application's own 40 commits
 (`cab4d17` … `fe7c587`).
+
+---
+
+## 19 — Cameras over VLAN 70/80 in VXLAN (DS-TT on the UE, NW-TT on the core)
+
+**What**
+- **UE:** `ue/tsn5g_ue/net/campath.py`. On the Cameras page, **Video path**
+  switches between *Direct* (UDP to the core, as before) and
+  *VLAN + VXLAN*. With *VLAN + VXLAN*, each camera has its own tunnel, built
+  by the TSN bridge's data path:
+
+  | | Camera 1 | Camera 2 |
+  |---|---|---|
+  | VLAN · PCP | 70 · 4 | 80 · 0 |
+  | VXLAN | VNI 70, outer source port **5202**, DSCP 34 | VNI 80, source port 5212, DSCP 0 |
+  | UE → server | 10.70.0.2 → 10.70.0.1:50451 | 10.80.0.2 → 10.80.0.1:50452 |
+  | 5G flow · UE lane | GBR (QFI 2) · protected | default · best effort |
+
+  - Camera 1 keeps everything that protects it today. The GBR rule matches
+    the outer source port, and the lanes, auto-rate and counters classify
+    the outer packets.
+  - The switch re-points both encoders and restarts them. The choice is
+    saved, and the tunnels are rebuilt after every new data call.
+  - The old empty VXLAN overlay (`vxlan60/70/80`) is stopped when the
+    tunnels are built; it used the same VNIs and had no far end.
+- **Core:** `core/scripts/nw-tt.sh` and `tsn5g-nwtt.service` (added to
+  `install.sh core`) build the tunnel ends: `nwtt-vx70`/`nwtt-vx80` on
+  `ogstun`, learning the UE's end, with VLAN devices `nwtt70`/`nwtt80` that
+  carry 10.70.0.1 and 10.80.0.1 for the video server.
+  `core/vxlan/README.md` is the core's guide.
+
+**Why** — the blueprint's DS-TT/NW-TT stage: the cameras' traffic crosses 5G
+as tagged Ethernet with its PCP, so the 5G system plus the two translators
+act as one TSN bridge.
+
+**Deploy**
+1. Core: `git pull && sudo core/scripts/nw-tt.sh up` (or `install.sh core`).
+2. UE: `sudo ./install.sh ue`.
+3. UE: Cameras → Video path → **VLAN + VXLAN**.
+
+**Verify**
+- Cameras page: both tunnels *up*, and *Core endpoint* shows "10.70.0.1
+  answers" / "10.80.0.1 answers".
+- Core: `sudo core/scripts/nw-tt.sh status` shows the learned UE end and
+  rising packet counts.
+- The viewer shows both cameras.
+- Tests → *Camera demo*: camera 1 still kept whole.
+
+**Roll back** — Video path → **Direct** (removes the tunnels and re-points the
+encoders). Core: `sudo core/scripts/nw-tt.sh down`.
 
 ---
 

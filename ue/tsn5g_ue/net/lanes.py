@@ -142,7 +142,11 @@ def counters(dev, entries):
         except (IndexError, ValueError):
             continue
         name = line.split(COUNT_TAG, 1)[1].split("*/")[0].strip()
-        seen[name] = {"pkts": pkts, "bytes": nbytes}
+        # Summed: a camera has one rule per video path (direct, VXLAN) and only
+        # one of them moves, so the sum stays monotonic across a switch.
+        c = seen.setdefault(name, {"pkts": 0, "bytes": 0})
+        c["pkts"] += pkts
+        c["bytes"] += nbytes
     out = []
     for e in entries or []:
         name = e.get("name") or f"port {e.get('dport')}"
