@@ -50,6 +50,10 @@ that are not video, both now kept out on the UE:
 **Deploy** — `sudo ./install.sh ue`; the tunnels are rebuilt when the daemon
 restarts.
 
+The core's `nw-tt.sh` also turns IPv6 off on `nwtt-vx*`/`nwtt*`: the only
+non-video frames left in the first check were the core's own IPv6 router
+solicitations going towards the UE.
+
 **Verify** — on the core, `sudo tcpdump -i nwtt-vx70 -e -n -c 20 'not (udp port 50451)'`
 captures nothing beyond ARP.
 

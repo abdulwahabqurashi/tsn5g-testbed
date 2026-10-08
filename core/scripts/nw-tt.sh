@@ -47,6 +47,9 @@ up() {
         ip link show "$vl" >/dev/null 2>&1 || ip link add link "$vx" name "$vl" type vlan id "$vlan"
         ip link set "$vl" mtu "$IN_MTU" up
         ip -br addr show "$vl" | grep -qw "${addr%/*}" || ip addr add "$addr" dev "$vl"
+        # IPv4 only: otherwise each device sends IPv6 router solicitations
+        # and listener reports down the tunnel to the UE (seen 8 Oct)
+        sysctl -qw "net.ipv6.conf.$vx.disable_ipv6=1" "net.ipv6.conf.$vl.disable_ipv6=1"
         echo "$vx: VXLAN $vni on $UNDERLAY $LOCAL:$PORT -> $vl VLAN $vlan $addr (mtu $IN_MTU)"
     done <<< "$TUNNELS"
     # the UE's tunnels arrive on the UE pool's gateway
