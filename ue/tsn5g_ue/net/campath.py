@@ -31,6 +31,7 @@ chosen path is saved and comes back after a reboot or a new data call.
 import json
 import logging
 import os
+import threading
 
 from .. import rig, utils
 from ..tsnbridge.datapath import Datapath, DatapathError
@@ -76,7 +77,8 @@ def _drop(table, chain, spec):
 
 
 class CameraPath:
-    def __init__(self, cfg, bearer, cameras, config=None, before_build=None):
+    def __init__(self, cfg, bearer, cameras, config=None, before_build=None,
+                 restart_encoders=None):
         self.cfg = {**DEFAULTS, **(cfg or {})}
         self.bearer = bearer
         self.cameras = {c["name"]: c for c in (cameras or [])}
@@ -84,6 +86,10 @@ class CameraPath:
         # Stops the legacy VXLAN overlay (transport/), which holds VNI 70/80 on
         # the same port with nothing at the far end.
         self.before_build = before_build
+        # Called when the encoders were found pointing the wrong way at start:
+        # install.sh re-renders their configs to the direct address and restarts
+        # them, after which the saved VXLAN choice re-points the files (8 Oct).
+        self.restart_encoders = restart_encoders
         self.state = {"built": False, "error": None, "encoders_pointed": None}
 
     # -- the pieces -------------------------------------------------------------
@@ -221,10 +227,25 @@ class CameraPath:
         try:
             self.build()
             if self._point_encoders(VXLAN):
-                self.state["error"] = "encoders were re-pointed: restart them to use the tunnels"
+                if self.restart_encoders:
+                    logger.warning("encoders were sending direct; restarting them on the tunnels")
+                    threading.Thread(target=self._restart_later, daemon=True,
+                                     name="campath-encoders").start()
+                else:
+                    self.state["error"] = "encoders were re-pointed: restart them to use the tunnels"
         except CamPathError as exc:
             self.state.update(built=False, error=str(exc))
             logger.warning("camera tunnels not rebuilt: %s", exc)
+
+    def _restart_later(self, delay=8):
+        import time
+        time.sleep(delay)              # let a unit start that is still in progress finish
+        try:
+            self.restart_encoders()
+            self.state["error"] = None
+        except Exception as exc:       # noqa: BLE001
+            self.state["error"] = f"encoders were re-pointed but did not restart: {exc}"
+            logger.warning("%s", self.state["error"])
 
     # -- read model -------------------------------------------------------------
     def status(self):

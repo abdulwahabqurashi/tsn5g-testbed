@@ -102,7 +102,10 @@ class Controller:
         from .net.campath import CameraPath
         self.campath = CameraPath(config.as_dict().get("camera_path"), self.bearer,
                                   config.cameras, config=config,
-                                  before_build=self._legacy_overlay_off)
+                                  before_build=self._legacy_overlay_off,
+                                  restart_encoders=lambda: rig.encoders(
+                                      "start", logger.info, camera_entries=config.cameras,
+                                      bearer=self.bearer))
         self.speedtest = SpeedTest(config.as_dict().get("speedtest", {}))
         self.netiface = NetIfaceManager(
             {"wwan_interface": config.modem.get("wwan_interface", "wwan0")},

@@ -218,3 +218,13 @@ In VXLAN mode the camera ports are inside the tunnel, so a capture on
 `ogstun` filtered by ports 50451/50452 matches nothing. The demo captures on
 `-i any` (the unwrapped copy on `nwtt70`/`nwtt80` matches). The N3 loss check
 counts tunnels by their outer source port (5202/5212).
+
+## install.sh resets the encoders to the direct path (8 Oct)
+
+`install.sh ue` renders the encoder configs from the templates, with the
+core's bearer address as the destination, and restarts the cameras. With VLAN
++ VXLAN as the saved video path, the daemon then re-pointed the files to the
+tunnel addresses, but the encoders were already running with the old ones.
+Camera 1 went straight over 5G and the tunnels sat empty, with nothing
+failing. The daemon now restarts the encoders itself when it has had to
+re-point them at start.
