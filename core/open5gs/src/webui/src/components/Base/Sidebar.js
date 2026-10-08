@@ -14,6 +14,7 @@ import TsnIcon from 'react-icons/lib/io/network';
 import RanIcon from 'react-icons/lib/io/wifi';
 import GnbPmIcon from 'react-icons/lib/io/stats-bars';
 import GnbQosIcon from 'react-icons/lib/io/ios-settings-strong';
+import QosFlowsIcon from 'react-icons/lib/io/ios-pulse-strong';
 import TimeSyncIcon from 'react-icons/lib/io/ios-clock-outline';
 import NwttPerfIcon from 'react-icons/lib/io/ios-pulse';
 import UeAnalyticsIcon from 'react-icons/lib/io/ios-people-outline';
@@ -102,6 +103,7 @@ const TOP_GROUPS = [
   ],
   [
     { name: 'ran-inventory',    title: 'RAN Inventory',  icon: RanIcon },
+    { name: 'qos-flows',        title: 'QoS Flows',      icon: QosFlowsIcon },
     { name: 'gnb-pm',           title: 'gNB Performance',icon: GnbPmIcon },
     { name: 'tsn',              title: '5GS Bridge',     icon: TsnIcon },
     { name: 'time-sync',        title: 'Time Sync',      icon: TimeSyncIcon },

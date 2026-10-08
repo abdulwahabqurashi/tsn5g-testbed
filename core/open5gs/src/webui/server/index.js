@@ -51,6 +51,16 @@ co(function* () {
   var tsnCollector = require('./services/tsn-collector');
   tsnCollector.start();
 
+  /* Follow the SMF ledger so the console can tell a live QoS config from a
+   * stale one. PCC rules are read only at PDU session establishment. */
+  var sessionWatcher = require('./services/session-watcher');
+  sessionWatcher.start();
+
+  /* Parse the gNB log for what the radio actually received, so the console
+   * can show configured vs in-force rather than assuming they agree. */
+  var gnbReadback = require('./services/gnb-readback');
+  gnbReadback.start();
+
   if (dev) {
     Account.count((err, count) => {
       if (err) {

@@ -18,6 +18,8 @@ const onboard = require('./onboard');
 const oui = require('./oui');
 const gnbPm = require('./gnb-pm');
 const gnbQos = require('./gnb-qos');
+const session = require('./session');
+const qos = require('./qos');
 const auditSvc = require('../services/audit');
 
 const router = express.Router();
@@ -127,5 +129,9 @@ router.use('/onboard', passport.authenticate('jwt', { session: false }), writesN
 router.use('/oui', passport.authenticate('jwt', { session: false }), oui);
 router.use('/gnb-pm', passport.authenticate('jwt', { session: false }), gnbPm);
 router.use('/gnb-qos', passport.authenticate('jwt', { session: false }), writesNeedOperator, auditSvc.middleware('gnb-qos'), gnbQos);
+/* read-only: reports whether the running PDU session still matches the
+ * subscriber's configured QoS. No audit middleware — it writes nothing. */
+router.use('/session', passport.authenticate('jwt', { session: false }), session);
+router.use('/qos', passport.authenticate('jwt', { session: false }), writesNeedOperator, auditSvc.middleware('qos'), qos);
 
 module.exports = router;

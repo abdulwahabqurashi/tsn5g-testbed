@@ -24,6 +24,7 @@ import * as Audit from 'containers/Audit';
 import * as RanInventory from 'containers/RanInventory';
 import * as GnbPm from 'containers/GnbPm';
 import * as GnbQos from 'containers/GnbQos';
+import * as QosFlows from 'containers/QosFlows';
 import * as Onboard from 'containers/Onboard';
 import * as LogViewer from 'containers/LogViewer';
 import * as TsnGuide from 'containers/TsnGuide';
@@ -66,7 +67,7 @@ class App extends Component {
 
     if (isDark) {
       document.body.style.backgroundColor = "#1a1b1e";
-    } else if (view === "dashboard" || view === "subscriber" || view === "tsn" || view === "onboard" || view === "ran-inventory" || view === "gnb-pm" || view === "gnb-qos" || view === "tsn-analytics" ||
+    } else if (view === "dashboard" || view === "subscriber" || view === "tsn" || view === "onboard" || view === "ran-inventory" || view === "gnb-pm" || view === "gnb-qos" || view === "qos-flows" || view === "tsn-analytics" ||
         view === "nwtt-performance" || view === "tsn-topology" || view === "tsn-sessions" ||
         view === "ue-analytics" || view === "ue-performance" || view === "health" || view === "audit" || view === "logs" || view === "tsn-guide" ||
         view === "time-sync") {
@@ -94,6 +95,9 @@ class App extends Component {
         </Layout.Container>
         <Layout.Container visible={view === "ran-inventory"}>
           <RanInventory.Collection/>
+        </Layout.Container>
+        <Layout.Container visible={view === "qos-flows"}>
+          <QosFlows.Collection/>
         </Layout.Container>
         <Layout.Container visible={view === "gnb-pm"}>
           <GnbPm.Collection/>

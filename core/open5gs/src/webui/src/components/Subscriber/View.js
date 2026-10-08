@@ -16,6 +16,9 @@ import KeyboardControlIcon from 'react-icons/lib/md/keyboard-control';
 
 import { Modal, Tooltip, Dimmed } from 'components';
 
+import SessionBanner from './SessionBanner';
+import FlowMatchPreview from './FlowMatchPreview';
+
 const Wrapper = styled.div`
   display: flex;
   flex-direction: column;
@@ -201,6 +204,7 @@ const View = ({ visible, disableOnClickOutside, subscriber, onEdit, onDelete, on
             </div>
           </Header>
           <Body>
+            <SessionBanner imsi={imsi} />
             <Subscriber>
               <div className="header">
                 Subscriber Configuration
@@ -587,7 +591,10 @@ const View = ({ visible, disableOnClickOutside, subscriber, onEdit, onDelete, on
                                     {flow.direction == 1 && "Downlink"}
                                     {flow.direction == 2 && "Uplink"}
                                   </div>
-                                  <div className="large_data" style={{width:"480px"}}>{flow.description}</div>
+                                  <div className="large_data" style={{width:"480px"}}>
+                                    {flow.description}
+                                    <FlowMatchPreview rule={flow.description} />
+                                  </div>
                                 </div>
                             )}
                           </div>

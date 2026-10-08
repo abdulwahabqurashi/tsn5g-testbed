@@ -9,6 +9,7 @@ import GclForm from './GclForm';
 import PsfpForm from './PsfpForm';
 import StreamForm from './StreamForm';
 import PtpCard from './PtpCard';
+import PtpSetup from './PtpSetup';
 import PtpConfigForm from './PtpConfigForm';
 import StreamFilterManager from './StreamFilterManager';
 
@@ -24,6 +25,7 @@ export {
   PsfpForm,
   StreamForm,
   PtpCard,
+  PtpSetup,
   PtpConfigForm,
   StreamFilterManager
 };

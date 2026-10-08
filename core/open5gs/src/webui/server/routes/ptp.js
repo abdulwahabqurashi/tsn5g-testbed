@@ -127,6 +127,211 @@ function readClockInfo(transportSpecific) {
   }
 }
 
+/* ============================================================
+ * Readiness + systemd service control
+ * Added 2026-10-05.
+ *
+ * The original /start spawns ptp4l directly from this process. That cannot
+ * work here: the WebUI runs as an unprivileged user, and ptp4l needs
+ * CAP_NET_RAW, CAP_NET_ADMIN and write access to /dev/ptpN. So PTP is owned
+ * by a systemd unit and the WebUI drives that unit through a narrow sudo
+ * rule installed by ~/tsntestbed/ptp/setup-ptp.sh.
+ *
+ * /readiness exists so the page can explain WHY it cannot start rather than
+ * failing with a bare permission error.
+ * ============================================================ */
+
+var PTP_UNIT = 'ptp4l-tsn.service';
+var PHC2SYS_UNIT = 'phc2sys-tsn.service';
+var PTP_CONF = '/etc/linuxptp/ptp4l-tsn.conf';
+
+function sh(cmd) {
+  try {
+    return execSync(cmd, { timeout: 4000, encoding: 'utf-8',
+                           stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+  } catch (e) {
+    return null;
+  }
+}
+
+/* Every interface that owns a PTP hardware clock, with its link state.
+ * Software timestamping is possible without one but is tens of microseconds
+ * of jitter, which is not useful for TSN - so the page needs to say plainly
+ * which ports are viable. */
+function phcPorts() {
+  var out = [];
+  var names;
+  try { names = fs.readdirSync('/sys/class/net'); } catch (e) { return out; }
+  names.forEach(function(n) {
+    if (n === 'lo') return;
+    var t = sh('ethtool -T ' + n);
+    if (!t) return;
+    var m = /PTP Hardware Clock:\s*(\S+)/.exec(t);
+    if (!m || m[1] === 'none') return;
+    var carrier = null;
+    try {
+      carrier = fs.readFileSync('/sys/class/net/' + n + '/carrier', 'utf-8').trim() === '1';
+    } catch (e) { /* down interfaces have no carrier file */ }
+    var drv = sh('ethtool -i ' + n + " | awk -F': ' '/^driver/{print $2}'");
+    out.push({ name: n, phc: parseInt(m[1], 10), carrier: !!carrier, driver: drv || null });
+  });
+  return out;
+}
+
+function unitState(unit) {
+  var active = sh('systemctl is-active ' + unit);
+  var enabled = sh('systemctl is-enabled ' + unit);
+  return {
+    unit: unit,
+    /* is-active exits non-zero when inactive, so sh() returns null - that is
+     * "inactive", not "unknown". Only a missing unit file is unknown. */
+    exists: enabled !== null || active !== null,
+    active: active === 'active',
+    enabled: enabled === 'enabled',
+    state: active || 'inactive'
+  };
+}
+
+/* The four values that must match the grandmaster exactly. A mismatch is
+ * silent - ptp4l never leaves s0 - so the page shows them rather than making
+ * anyone open a file on the server to find out what is configured. */
+function activeConfig() {
+  var txt;
+  try { txt = fs.readFileSync(PTP_CONF, 'utf-8'); } catch (e) { return null; }
+  function val(key) {
+    var m = new RegExp('^\\s*' + key + '\\s+(\\S+)', 'm').exec(txt);
+    return m ? m[1] : null;
+  }
+  /* the bound interface is the lone [section] after [global] */
+  var iface = null;
+  var secs = txt.match(/^\[([^\]]+)\]/gm) || [];
+  secs.forEach(function(x) {
+    var n = x.replace(/[\[\]]/g, '');
+    if (n !== 'global') iface = n;
+  });
+  var ts = val('transportSpecific');
+  return {
+    path: PTP_CONF,
+    interface: iface,
+    domain: val('domainNumber'),
+    transport: val('network_transport'),
+    delay_mechanism: val('delay_mechanism'),
+    time_stamping: val('time_stamping'),
+    transportSpecific: ts,
+    /* 802.1AS is the only profile that sets transportSpecific to 1 */
+    profile: (ts === '0x1' || ts === '1') ? '802.1AS' : 'IEEE 1588',
+    vlan: iface && /\.(\d+)$/.test(iface) ? iface.replace(/^.*\.(\d+)$/, '$1') : null
+  };
+}
+
+/* GET /api/ptp/readiness */
+router.get('/readiness', function(req, res) {
+  var installed = !!sh('command -v ptp4l');
+  var ports = phcPorts();
+  var usable = ports.filter(function(p) { return p.carrier; });
+  var unit = unitState(PTP_UNIT);
+  var phc2sys = unitState(PHC2SYS_UNIT);
+  /* -n never prompts, so this succeeds only if a NOPASSWD rule covers it.
+   * It must be a command the rule actually GRANTS: `is-enabled` is not in the
+   * rule, so probing with that reported "not permitted" even when control was
+   * working. `show --property=Id` is granted, read-only and side-effect free. */
+  var canControl = sh('sudo -n systemctl show ' + PTP_UNIT +
+                      ' --property=Id 2>/dev/null') !== null;
+
+  var checks = [
+    { id: 'linuxptp', ok: installed,
+      label: 'linuxptp installed',
+      detail: installed ? (sh('ptp4l -v 2>&1 | head -1') || 'present')
+                        : 'ptp4l not found' },
+    { id: 'hwclock', ok: ports.length > 0,
+      label: 'network port with a PTP hardware clock',
+      detail: ports.length
+        ? ports.map(function(p) {
+            return p.name + ' (' + p.driver + ', /dev/ptp' + p.phc + ', link ' +
+                   (p.carrier ? 'up' : 'down') + ')';
+          }).join('; ')
+        : 'no port reports a PHC - the Broadcom bnxt_en ports need a niccli NVM change' },
+    { id: 'link', ok: usable.length > 0,
+      label: 'that port is cabled and up',
+      detail: usable.length ? usable.map(function(p) { return p.name; }).join(', ')
+                            : 'a PHC-capable port exists but has no carrier' },
+    { id: 'unit', ok: unit.exists,
+      label: 'ptp4l systemd unit installed',
+      detail: unit.exists ? unit.unit + ' (' + unit.state + ')' : 'not installed' },
+    { id: 'control', ok: canControl,
+      label: 'WebUI permitted to start/stop it',
+      detail: canControl ? 'sudoers rule present'
+                         : 'missing /etc/sudoers.d/open5gs-webui-ptp' }
+  ];
+
+  var ready = checks.every(function(c) { return c.ok; });
+
+  res.json({
+    ready: ready,
+    checks: checks,
+    ports: ports,
+    service: unit,
+    phc2sys: phc2sys,
+    /* The one command that fixes every failing check above. */
+    config: activeConfig(),
+    fixCommand: 'sudo /home/tsn_server/tsntestbed/ptp/setup-ptp.sh',
+    /* Detection needs tcpdump, which is deliberately NOT in the sudoers rule:
+     * granting it would let the WebUI read arbitrary traffic on any interface.
+     * The operator runs this one by hand. */
+    detectCommand: 'sudo /home/tsn_server/tsntestbed/ptp/setup-ptp.sh --detect-only'
+  });
+});
+
+/* GET /api/ptp/service - live state plus recent journal */
+router.get('/service', function(req, res) {
+  var unit = unitState(PTP_UNIT);
+  var logs = sh('journalctl -u ' + PTP_UNIT + ' -n 40 --no-pager -o short-iso');
+  var offset = null, portState = null;
+  if (logs) {
+    /* ptp4l -m prints e.g. "master offset -42 s2 freq ..." - s2 is locked. */
+    var lines = logs.split('\n');
+    for (var i = lines.length - 1; i >= 0; i--) {
+      var m = /master offset\s+(-?\d+)\s+s(\d)/.exec(lines[i]);
+      if (m) { offset = parseInt(m[1], 10); portState = 's' + m[2]; break; }
+    }
+  }
+  res.json({
+    service: unit,
+    phc2sys: unitState(PHC2SYS_UNIT),
+    config: activeConfig(),
+    offset_ns: offset,
+    /* s0 unlocked, s1 acquiring, s2 locked */
+    sync_state: portState,
+    locked: portState === 's2',
+    logs: logs ? logs.split('\n').slice(-25) : []
+  });
+});
+
+/* POST /api/ptp/service { action: start|stop|restart, unit: ptp4l|phc2sys } */
+router.post('/service', function(req, res) {
+  var b = req.body || {};
+  var action = String(b.action || '');
+  if (['start', 'stop', 'restart'].indexOf(action) === -1) {
+    return res.status(400).json({ message: 'action must be start, stop or restart' });
+  }
+  var unit = b.unit === 'phc2sys' ? PHC2SYS_UNIT : PTP_UNIT;
+  if (unit === PHC2SYS_UNIT && action === 'restart') {
+    return res.status(400).json({ message: 'phc2sys supports start and stop only' });
+  }
+
+  var out = sh('sudo -n systemctl ' + action + ' ' + unit + ' 2>&1');
+  if (out === null) {
+    return res.status(403).json({
+      message: 'Not permitted to ' + action + ' ' + unit + '. Run: ' +
+               'sudo /home/tsn_server/tsntestbed/ptp/setup-ptp.sh'
+    });
+  }
+  /* Give the daemon a moment to settle so the caller gets a true state. */
+  setTimeout(function() {
+    res.json({ ok: true, action: action, unit: unit, state: unitState(unit) });
+  }, 1200);
+});
+
 /* GET /api/ptp/status */
 router.get('/status', function(req, res) {
   var result = {

@@ -30,6 +30,10 @@ class Collection extends Component {
           3GPP TS 23.501 §5.27.1 — IEEE 802.1AS / 1588 clock distribution
           through the 5G system (NW-TT side)
         </PageSubtitle>
+        {/* Readiness first: on this host PTP could not start at all, and the
+          * card below gives no indication why. This one says what is missing
+          * and the one command that fixes it. */}
+        <Tsn.PtpSetup />
         <Tsn.PtpCard />
       </Layout.Content>
     );
