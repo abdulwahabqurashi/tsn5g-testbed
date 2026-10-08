@@ -6,7 +6,8 @@ back**. To read one commit in full: `git show <hash>`.
 
 | # | Commit | Title |
 |---|---|---|
-| 20 | *(see `git log -- tools/n3count.py`)* | VXLAN path: PCP fixed per VLAN; demo and loss check count tunnelled video |
+| 21 | *(see `git log -- ue/tsn5g_ue/net/campath.py`)* | Only video enters a camera tunnel |
+| 20 | `843846b` | VXLAN path: PCP fixed per VLAN; demo and loss check count tunnelled video |
 | 19 | `307983f` | Cameras over VLAN 70/80 in VXLAN (DS-TT on the UE, NW-TT on the core) |
 | 18 | `f9fb14d` | gNB crash fixed (srsRAN patch 0002); the UE rebuilds a silent session by itself |
 | 17 | `27e9e60` | A stale 5G session is detected and rebuilt with one click |
@@ -29,6 +30,28 @@ back**. To read one commit in full: `git show <hash>`.
 
 Before these, `git log -- ue/` shows the UE application's own 40 commits
 (`cab4d17` … `fe7c587`).
+
+---
+
+## 21 — Only video enters a camera tunnel
+
+**What** — the PCP fix works: on the core, camera 1 arrives as
+`vlan 70, p 4`. The same capture showed two kinds of traffic in the tunnel
+that are not video, both now kept out on the UE:
+- **Camera discovery:** the encoder sends GigE Vision discovery broadcasts
+  (`255.255.255.255:3956`) and SSDP-style multicast on every interface,
+  tunnels included. Each tunnel now drops UDP not addressed to its camera's
+  video port. Video fragments still pass, because a port match never applies
+  to a fragment.
+- **IPv6 housekeeping:** the tunnel devices' own MLD and neighbour
+  solicitations crossed 5G untagged. IPv6 is now off on the `tb-cam*`
+  devices.
+
+**Deploy** — `sudo ./install.sh ue`; the tunnels are rebuilt when the daemon
+restarts.
+
+**Verify** — on the core, `sudo tcpdump -i nwtt-vx70 -e -n -c 20 'not (udp port 50451)'`
+captures nothing beyond ARP.
 
 ---
 

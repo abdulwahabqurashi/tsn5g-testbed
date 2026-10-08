@@ -122,6 +122,13 @@ class CameraPath:
             ("mangle", "POSTROUTING", self._outer(t) + ["-m", "comment", "--comment",
                                                          f"{lanes.COUNT_TAG}{t['camera']}"], False),
         ]
+        # Only the camera's video enters its tunnel. The encoder's camera
+        # discovery (GVCP broadcast to :3956, SSDP-style multicast) otherwise
+        # goes out on every interface, the tunnel included (seen 8 Oct).
+        port = str(cam.get("stream_port", ""))
+        if port:
+            for chain, io in (("OUTPUT", ["-o", dp.dev_veth_a]), ("FORWARD", ["-o", dp.dev_veth_a])):
+                rules.append(("filter", chain, io + ["-p", "udp", "!", "--dport", port, "-j", "DROP"], True))
         if t.get("lane") == "protected":
             rules.append(("mangle", "POSTROUTING", self._outer(t) + [
                 "-j", "CLASSIFY", "--set-class", lanes.LANES["protected"]], False))
@@ -174,6 +181,10 @@ class CameraPath:
                 raise CamPathError(f"{t['camera']} tunnel: {exc}") from None
             for table, chain, spec, insert in self._rules(t, dp):
                 _ensure(table, chain, spec, insert)
+            # IPv4 only: the tunnel devices' own IPv6 chatter (MLD, neighbour
+            # solicitation) otherwise crosses 5G untagged.
+            for dev in dp.devices():
+                utils.run(["sysctl", "-qw", f"net.ipv6.conf.{dev}.disable_ipv6=1"], check=False, timeout=5)
             log(f"{t['camera']}: VLAN {t['vlan']} PCP {t.get('pcp', 0)} in VXLAN {t.get('vni', t['vlan'])} "
                 f"to {self._remote()}:{self.cfg['dstport']}, outer source port {t['srcport']}, "
                 f"{t.get('lane')} lane, inner MTU {dp.mtu}")
