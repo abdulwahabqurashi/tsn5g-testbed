@@ -112,6 +112,11 @@ forwarding_rules() {
     # no ACCEPT further down can pre-empt it.
     iptables -C FORWARD -i "$VETH_ROOT" ! -o "$BEARER" -j DROP 2>/dev/null || \
         iptables -I FORWARD 1 -i "$VETH_ROOT" ! -o "$BEARER" -j DROP
+    # ...except into camera 2's VXLAN tunnel (net/campath.py, devices tb-*),
+    # which must sit above the guard: inserting the guard at the top used to
+    # bury the tunnel's own exception and drop all of camera 2's video (8 Oct).
+    while iptables -D FORWARD -i "$VETH_ROOT" -o "tb-+" -j ACCEPT 2>/dev/null; do :; done
+    iptables -I FORWARD 1 -i "$VETH_ROOT" -o "tb-+" -j ACCEPT
 }
 
 ensure() {
@@ -145,6 +150,7 @@ down() {
     iptables -D FORWARD -i "$BEARER" -o "$VETH_ROOT" -m state \
         --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || true
     iptables -D FORWARD -i "$VETH_ROOT" ! -o "$BEARER" -j DROP 2>/dev/null || true
+    iptables -D FORWARD -i "$VETH_ROOT" -o "tb-+" -j ACCEPT 2>/dev/null || true
     sleep 1
     # The NIC comes back without its address; the daemon re-applies it on its
     # next start, or do it by hand.

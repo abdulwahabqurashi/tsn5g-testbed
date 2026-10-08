@@ -228,3 +228,11 @@ tunnel addresses, but the encoders were already running with the old ones.
 Camera 1 went straight over 5G and the tunnels sat empty, with nothing
 failing. The daemon now restarts the encoders itself when it has had to
 re-point them at start.
+
+## Camera 2's leak guard buried the tunnel exception (8 Oct)
+
+`camera2-netns.sh` inserts its leak guard ("from camera 2, drop anything not
+leaving on the bearer") at the top of FORWARD. When it ran after the tunnels
+were built, it sat above their ACCEPT, and all of camera 2's VXLAN video was
+dropped, silently. The script now puts an ACCEPT for `tb-+` directly above the
+guard, and the tunnel builder moves its exceptions to the top on every build.

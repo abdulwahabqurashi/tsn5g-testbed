@@ -65,6 +65,10 @@ def _ipt(table, op, chain, *spec):
 
 
 def _ensure(table, chain, spec, insert=False):
+    if insert:
+        # Order matters for these (exceptions above a guard that drops), so
+        # move them to the top every time rather than trusting where they are.
+        _drop(table, chain, spec)
     if _ipt(table, "-C", chain, *spec).returncode != 0:
         proc = _ipt(table, "-I" if insert else "-A", chain, *spec)
         if proc.returncode != 0:
