@@ -1,0 +1,56 @@
+From fc58f570cabb766d39cd86096f4f3e5f65941e79 Mon Sep 17 00:00:00 2001
+From: TSN-5G testbed <tsn5g@localhost>
+Date: Thu, 8 Oct 2026 22:12:23 +0100
+Subject: [PATCH] scheduler: forget a UE's QoS rows when it is deactivated
+
+logical_channel_system::deactivate() erases the UE's GBR QoS tracking rows
+(qos_channels, qos_lcgs) but leaves ch_ctx.qos_row / ul_ch_ctx.qos_row set.
+A deactivated UE is not yet removed: a BSR (handle_bsr) or an UL grant
+(handle_ul_grant) that still arrives for it dereferences the erased row and
+the gNB aborts:
+
+  soa_table.h:335 ... lcg_qos_context ... Assertion 'has_row_id(rid)' failed
+
+Seen on 8 Oct 2026 with a UE carrying a GBR flow (only GBR LCGs have a row).
+Reset the optionals after erasing. Also pass the OLD LCG id to remove_lcg()
+when an LCID moves between LCGs (it passed the new one).
+
+Applies to 4bf1543 on top of 0001. Upstream main still has both.
+---
+ lib/scheduler/ue_context/logical_channel_system.cpp | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/lib/scheduler/ue_context/logical_channel_system.cpp b/lib/scheduler/ue_context/logical_channel_system.cpp
+index 63724df..1e959ba 100644
+--- a/lib/scheduler/ue_context/logical_channel_system.cpp
++++ b/lib/scheduler/ue_context/logical_channel_system.cpp
+@@ -287,7 +287,7 @@ void logical_channel_system::configure(soa::row_id ue_rid, logical_channel_confi
+         lcg_id_t                          old_lcg_id    = old_cfgs.value()[ch_cfg->lcid]->lc_group;
+         ul_logical_channel_group_context& old_ul_ch_ctx = ue_ul_ch.lcgs.at(old_lcg_id);
+         if (--old_ul_ch_ctx.lc_count == 0) {
+-          remove_lcg(ue_rid, ue_ul_ch, ch_cfg->lc_group, old_ul_ch_ctx);
++          remove_lcg(ue_rid, ue_ul_ch, old_lcg_id, old_ul_ch_ctx);
+         }
+       }
+     }
+@@ -384,6 +384,9 @@ void logical_channel_system::deactivate(soa::row_id ue_rid)
+     if (ch_ctx.qos_row.has_value()) {
+       // Eliminate associated QoS being tracked.
+       qos_channels.erase(*ch_ctx.qos_row);
++      // Forget the row too: a deactivated UE can still report a BSR or get a
++      // grant before it is removed, and a stale row id then fails has_row_id().
++      ch_ctx.qos_row.reset();
+     }
+ 
+     // Detach from RAN slice.
+@@ -397,6 +400,7 @@ void logical_channel_system::deactivate(soa::row_id ue_rid)
+     if (ul_ch_ctx.qos_row.has_value()) {
+       // Eliminate associated QoS being tracked.
+       qos_lcgs.erase(*ul_ch_ctx.qos_row);
++      ul_ch_ctx.qos_row.reset();
+     }
+ 
+     // Detach from RAN slice.
+-- 
+2.43.0
+

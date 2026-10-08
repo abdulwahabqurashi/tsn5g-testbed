@@ -6,7 +6,8 @@ back**. To read one commit in full: `git show <hash>`.
 
 | # | Commit | Title |
 |---|---|---|
-| 17 | *(see `git log -- ue/tsn5g_ue/net/latency.py`)* | A stale 5G session is detected and rebuilt with one click |
+| 18 | *(see `git log -- ue/tsn5g_ue/watchdog.py`)* | gNB crash fixed (srsRAN patch 0002); the UE rebuilds a silent session by itself |
+| 17 | `27e9e60` | A stale 5G session is detected and rebuilt with one click |
 | 16 | `6773581` | One-click tests fixed for real runs; camera loss check on the console |
 | 15 | `ce0ee7e` | Console revamp: 8 pages, one-click tests |
 | 14 | `9576362` | Cameras at 20 fps, fixed addresses; auto-rate measures only the radio |
@@ -26,6 +27,53 @@ back**. To read one commit in full: `git show <hash>`.
 
 Before these, `git log -- ue/` shows the UE application's own 40 commits
 (`cab4d17` … `fe7c587`).
+
+---
+
+## 18 — gNB crash fixed (srsRAN patch 0002); the UE rebuilds a silent session by itself
+
+**What**
+- `core/srsran/0002-scheduler-forget-a-UE-s-QoS-rows-when-it-is-deactiva.patch`:
+  - When a UE is deactivated, `logical_channel_system::deactivate()` erases
+    the UE's GBR tracking rows but keeps their ids. A buffer report or grant
+    that arrives before the UE is removed then aborts the gNB:
+    `Assertion has_row_id(rid) failed` in `lcg_qos_context`.
+  - The patch resets the ids. It also passes the old LCG id to `remove_lcg()`.
+  - Both bugs are still in upstream `main`.
+- `ue/tsn5g_ue/watchdog.py`: after `latency.auto_rebuild_s` (90 s) with no
+  reply from the core, the UE checks once with a ping over the bearer, then
+  runs **Rebuild session** itself.
+  - At most one attempt every 10 minutes.
+  - `GET /api/latency` reports it under `watchdog`.
+
+**Why** — the 5G link was dead twice, for hours each time:
+- 6 Oct, 09:57: the core's health check restarted the gNB at 6.8 GB of memory.
+- 8 Oct, 07:18: the gNB aborted on the GBR bookkeeping bug above.
+
+Both times the gNB came back, but the modem never re-attached (no PRACH at
+all) until its session was rebuilt by hand.
+
+**Deploy**
+- **Core:** rebuild srsRAN with both patches, then restart the gNB at a quiet
+  moment:
+  ```bash
+  cd ~/tsn5g-testbed && git pull
+  cd ~/srsRAN_Project && git am ~/tsn5g-testbed/core/srsran/0002-*.patch
+  cmake --build build -j"$(nproc)" --target gnb
+  sudo systemctl restart srsran-gnb
+  ```
+  `core/build.sh srsran` does the same for a fresh build.
+- **UE:** `sudo ./install.sh ue` (re-renders the config with `auto_rebuild_s`).
+
+**Verify**
+- gNB: `journalctl -u srsran-gnb` shows no `has_row_id` abort.
+- UE: stop the gNB for 3 minutes, then start it. Within about 2 minutes the
+  UE rebuilds by itself: the log says "rebuilding the 5G session" and the
+  Overview turns green.
+
+**Roll back**
+- Core: `git -C ~/srsRAN_Project reset --hard HEAD~1` and rebuild.
+- UE: `auto_rebuild_s: 0` in `site.env`/the config, or `git revert`.
 
 ---
 

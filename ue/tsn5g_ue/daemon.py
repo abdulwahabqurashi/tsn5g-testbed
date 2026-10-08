@@ -114,6 +114,15 @@ class Daemon:
         # 2) Detect hardware and optionally auto-resume the last-good session.
         self.controller.start()
 
+        # 2b) Rebuild the 5G session by itself when nothing reaches the core
+        #     (a gNB restart leaves the modem "up" and silent).
+        from .watchdog import LinkWatchdog
+        lat = self.config.as_dict().get("latency") or {}
+        self.watchdog = LinkWatchdog(self.controller, self.jobs,
+                                     after_s=int(lat.get("auto_rebuild_s", 90)))
+        self.controller.watchdog = self.watchdog
+        self.watchdog.start()
+
         # 3) Radio telemetry on its own thread, so a slow AT read cannot
         #    delay stats collection or health checks.
         self.controller.signal_poller.start()
@@ -187,6 +196,8 @@ class Daemon:
         # Stop accepting work before tearing the hardware down, or a job could
         # be reconfiguring the modem while disconnect() detaches it.
         self.controller.signal_poller.stop()
+        if getattr(self, "watchdog", None):
+            self.watchdog.stop()
         cancelled = self.jobs.cancel_all(timeout=5.0)
         if cancelled:
             logger.info("cancelled %d running job(s)", cancelled)

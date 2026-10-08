@@ -166,6 +166,9 @@ latency:
   enabled: true
   rate_hz: 20
   port: 5310
+  # Rebuild the 5G session after this many seconds with no reply from the core
+  # (a gNB restart leaves the modem "up" and silent). 0 turns it off.
+  auto_rebuild_s: 90
 ptp:
   enabled: true
   profile: ${PTP_PROFILE}

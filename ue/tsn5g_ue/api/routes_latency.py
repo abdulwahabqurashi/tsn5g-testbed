@@ -13,8 +13,10 @@ def register(router):
 
     @router.get("/api/latency")
     def latency_status(req):
-        """Probe state and the latest second per lane (up/down one-way delay in ms)."""
-        return _probe(req).status()
+        """Probe state and the latest second per lane (up/down one-way delay in ms),
+        plus the link watchdog (auto-rebuild of a silent 5G session)."""
+        wd = getattr(req.ctx.controller, "watchdog", None)
+        return {**_probe(req).status(), "watchdog": dict(wd.state) if wd else None}
 
     @router.get("/api/latency/history")
     def latency_history(req):
