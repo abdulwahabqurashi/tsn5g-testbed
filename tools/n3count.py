@@ -10,6 +10,11 @@ import sys
 UE = bytes(int(x) for x in os.environ.get("UE_IP", "10.45.0.12").split("."))
 PORTS = {int(os.environ.get("CAM1_PORT", 50451)): "camera1",
          int(os.environ.get("CAM2_PORT", 50452)): "camera2"}
+# In VXLAN mode the video is inside the tunnel: count each tunnel by its outer
+# source port instead (camera 1's tunnel uses the GBR port).
+VXLAN_PORT = int(os.environ.get("VXLAN_PORT", 4789))
+TUNNELS = {int(os.environ.get("CAM1_SPORT", 5202)): "camera1",
+           int(os.environ.get("CAM2_SPORT", 5212)): "camera2"}
 path, t0, t1 = sys.argv[1], float(sys.argv[2]), float(sys.argv[3])
 n = {name: 0 for name in PORTS.values()}
 with open(path, "rb") as fh:
@@ -40,7 +45,8 @@ with open(path, "rb") as fh:
         if struct.unpack(">H", i[6:8])[0] & 0x1FFF:
             continue
         ihl = (i[0] & 15) * 4
-        name = PORTS.get(struct.unpack(">H", i[ihl + 2:ihl + 4])[0])
+        sport, dport = struct.unpack(">HH", i[ihl:ihl + 4])
+        name = TUNNELS.get(sport) if dport == VXLAN_PORT else PORTS.get(dport)
         if name:
             n[name] += 1
 for name, c in n.items():

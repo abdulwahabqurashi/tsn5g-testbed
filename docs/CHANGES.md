@@ -6,7 +6,8 @@ back**. To read one commit in full: `git show <hash>`.
 
 | # | Commit | Title |
 |---|---|---|
-| 19 | *(see `git log -- ue/tsn5g_ue/net/campath.py`)* | Cameras over VLAN 70/80 in VXLAN (DS-TT on the UE, NW-TT on the core) |
+| 20 | *(see `git log -- tools/n3count.py`)* | VXLAN path: PCP fixed per VLAN; demo and loss check count tunnelled video |
+| 19 | `307983f` | Cameras over VLAN 70/80 in VXLAN (DS-TT on the UE, NW-TT on the core) |
 | 18 | `f9fb14d` | gNB crash fixed (srsRAN patch 0002); the UE rebuilds a silent session by itself |
 | 17 | `27e9e60` | A stale 5G session is detected and rebuilt with one click |
 | 16 | `6773581` | One-click tests fixed for real runs; camera loss check on the console |
@@ -28,6 +29,34 @@ back**. To read one commit in full: `git show <hash>`.
 
 Before these, `git log -- ue/` shows the UE application's own 40 commits
 (`cab4d17` … `fe7c587`).
+
+---
+
+## 20 — VXLAN path: PCP fixed per VLAN; demo and loss check count tunnelled video
+
+**What**
+- First run on the rig (8 Oct): both tunnels carried video, camera 1's outer
+  header was source port 5202 with DSCP 34, and camera 2's was 5212 with
+  DSCP 0. But VLAN 70 arrived with **PCP 0**, not 4: the priority set before
+  the veth did not survive it.
+  - Each tunnel's VLAN device now stamps a fixed PCP: 4 on VLAN 70, 0 on
+    VLAN 80.
+- `demo-run.sh` captures on `-i any`, so in VXLAN mode it counts the
+  unwrapped video on `nwtt70`/`nwtt80`. In direct mode it counts `ogstun` as
+  before.
+- `n3count.py` (camera loss check) counts tunnels by their outer source port
+  when the video is in VXLAN.
+
+**Deploy** — `git pull` on the core (the tools run from the UE but copy
+`n3count.py` over), then `sudo ./install.sh ue` on the UE. The tunnels are
+rebuilt with the new PCP when the daemon restarts.
+
+**Verify** — on the core,
+`sudo tcpdump -i nwtt-vx70 -e -n -c 3` shows `vlan 70, p 4` and
+`-i nwtt-vx80` shows `vlan 80, p 0`. A camera demo in VXLAN mode gives
+camera percentages near 100 % in the baseline phase.
+
+**Roll back** — `git revert`.
 
 ---
 

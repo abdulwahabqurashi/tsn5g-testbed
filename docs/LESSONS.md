@@ -200,3 +200,21 @@ the local port fixed.
 - The viewer forwarded over SSH X11 was throttled until the kernel dropped
   905,696 packets. Use a virtual screen plus VNC (`vnc-display.sh`) on both
   machines.
+
+## A priority set before a veth is gone after it (8 Oct)
+
+Camera 1's tunnel classified its frames to priority 4 on the veth's first end
+(`tb-cam1a`), and the VLAN device behind the bridge was meant to copy that
+priority into the PCP (identity egress map). On the core, every frame arrived
+tagged **PCP 0**: skb->priority does not survive the veth hop into the
+bridge. Fix: each tunnel carries one camera, so its VLAN device stamps a fixed
+PCP (`remark_map`). The TSN Lab bridge's identity-map layouts rely on the same
+copy and would show the same fault. Check PCP on the far end
+(`tcpdump -e -i nwtt-vx70`), never on the UE.
+
+## Count video where it is visible (8 Oct)
+
+In VXLAN mode the camera ports are inside the tunnel, so a capture on
+`ogstun` filtered by ports 50451/50452 matches nothing. The demo captures on
+`-i any` (the unwrapped copy on `nwtt70`/`nwtt80` matches). The N3 loss check
+counts tunnels by their outer source port (5202/5212).

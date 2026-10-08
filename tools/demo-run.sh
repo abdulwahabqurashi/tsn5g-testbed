@@ -102,7 +102,10 @@ NPHASES=$(( 1 + 2 * PAIRS ))
 TOTAL=$(( (PHASE + 10) * NPHASES + 60 ))
 echo "== $NPHASES phases of ${PHASE}s — about $(( (PHASE + 6) * NPHASES / 60 + 1 )) minutes"
 echo "== core: capture and iperf3 servers"
-core_capture "$TOTAL" "$PCAP" "-i ogstun -n -s 96 'udp and (dst port $CAM1_PORT or dst port $CAM2_PORT)'" \
+# -i any: direct video arrives on ogstun; in VXLAN mode (Cameras -> Video path)
+# it is inside the tunnel there and appears unwrapped on nwtt70/nwtt80. The
+# port filter matches exactly one of those copies either way.
+core_capture "$TOTAL" "$PCAP" "-i any -n -s 128 'udp and (dst port $CAM1_PORT or dst port $CAM2_PORT)'" \
     || die "could not start the capture on the core"
 ssh -o BatchMode=yes "$CORE" "for p in \$(seq 5211 5219); do pkill -f \"^iperf3 -s -p \$p\" 2>/dev/null; \
         iperf3 -s -p \$p -D; done" || die "could not start the iperf3 servers on the core"
@@ -186,7 +189,7 @@ echo "== collecting the core capture"
 sleep 3
 # time, destination, UDP length (the first fragment carries the datagram's length)
 ssh "$CORE" "tcpdump -tt -n -r $PCAP 2>/dev/null" \
-    | awk '{print $1, $5, $NF}' > "$OUT/core.txt"
+    | awk '{d=""; for (i = 1; i <= NF; i++) if ($i == ">") d = $(i + 1); print $1, d, $NF}' > "$OUT/core.txt"
 
 python3 "$(dirname "${BASH_SOURCE[0]}")/demo-analyse.py" "$OUT" | tee "$OUT/results.txt"
 echo

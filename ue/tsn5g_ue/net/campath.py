@@ -93,7 +93,11 @@ class CameraPath:
     def _datapath(self, t):
         st = self.bearer.status()
         spec = {"name": t["name"], "vlan": t["vlan"], "vni": t.get("vni", t["vlan"]),
-                "dstport": self.cfg["dstport"], "identity_map": True, "dscp": t.get("dscp"),
+                # A fixed PCP per VLAN, not the identity map: skb->priority does
+                # not survive the veth hop to the bridge (measured 8 Oct: camera 1
+                # tagged PCP 0 on the core), and each tunnel carries one camera.
+                "dstport": self.cfg["dstport"], "identity_map": False,
+                "pcp": int(t.get("pcp", 0)), "dscp": t.get("dscp"),
                 "srcport": t.get("srcport"), "gate_ip": t["ue_ip"]}
         return Datapath(spec, self.bearer.iface, st.get("ipv4"), self._remote(),
                         bearer_mtu=int(st.get("mtu") or 1400))
