@@ -12,6 +12,11 @@ User=${CORE_USER}
 WorkingDirectory=${PREFIX}/core/open5gs/src/webui
 Environment=HOSTNAME=${CORE_LAN_IP}
 Environment=PORT=9999
+# Where the gNB's config lives. The WebUI's gNB read-back and gNB QoS page parse
+# this file for the QoS profiles AND for the log path to read back from, so
+# without it they fall back to a hardcoded pre-repo path and silently show
+# nothing.
+Environment=GNB_CONFIG=${ETC_DIR}/gnb.yaml
 ExecStart=/usr/bin/node server/index.js
 Restart=on-failure
 RestartSec=5
