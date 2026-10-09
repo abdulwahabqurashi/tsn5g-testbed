@@ -16,6 +16,9 @@ def register(router):
     @router.post("/api/transport/start")
     def transport_start(req):
         """Attach the modem and build the VXLAN/Ethernet data path."""
+        if not req.ctx.controller.overlay_allowed():
+            raise ApiError(409, "the old VXLAN overlay is off on this rig (transport.overlay: false); "
+                                "the cameras use their own tunnels: Cameras -> Video path")
         return req.ctx.submit_job("net.transport_start", {
             "mode": req.opt("mode"), "dnn": req.opt("dnn"),
             "wired_nics": req.opt("wired_nics"), "role": req.opt("role"),

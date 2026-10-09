@@ -6,7 +6,8 @@ back**. To read one commit in full: `git show <hash>`.
 
 | # | Commit | Title |
 |---|---|---|
-| 21 | *(see `git log -- ue/tsn5g_ue/net/campath.py`)* | Only video enters a camera tunnel |
+| 22 | *(see `git log -- ue/tsn5g_ue/controller.py`)* | The old VXLAN overlay is retired: no more false "Error" |
+| 21 | `7b73c8b` | Only video enters a camera tunnel |
 | 20 | `843846b` | VXLAN path: PCP fixed per VLAN; demo and loss check count tunnelled video |
 | 19 | `307983f` | Cameras over VLAN 70/80 in VXLAN (DS-TT on the UE, NW-TT on the core) |
 | 18 | `f9fb14d` | gNB crash fixed (srsRAN patch 0002); the UE rebuilds a silent session by itself |
@@ -30,6 +31,31 @@ back**. To read one commit in full: `git show <hash>`.
 
 Before these, `git log -- ue/` shows the UE application's own 40 commits
 (`cab4d17` … `fe7c587`).
+
+---
+
+## 22 — The old VXLAN overlay is retired: no more false "Error"
+
+**What**
+- At every start the daemon resumed the old overlay (`vxlan60/70/80`) along
+  with the data call. With the cameras on their own tunnels (same VNIs, same
+  port), that failed ("A VXLAN device with the specified VNI already exists")
+  and left the daemon in `state: error`. The sidebar said **Error** and the
+  Overview's *Needs attention* showed the message, while everything worked.
+- A resume now brings up the **data call only**. The overlay starts only with
+  `transport.overlay: true`, and never while the camera path is VLAN + VXLAN.
+  `POST /api/transport/start` refuses (409) otherwise.
+- The *VXLAN transport* tab is removed from TSN Lab (its Start button would
+  have broken the camera tunnels). Old links to it open Cameras.
+
+**Deploy** — `sudo ./install.sh ue`.
+
+**Verify** — after the daemon restarts, the sidebar says *Online* and
+*Needs attention* shows nothing about VXLAN. `GET /api/status` has
+`state: running` and no `last_error`.
+
+**Roll back** — `transport.overlay: true` (with the camera path on Direct), or
+`git revert`.
 
 ---
 

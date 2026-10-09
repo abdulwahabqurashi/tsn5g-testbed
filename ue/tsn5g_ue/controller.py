@@ -183,6 +183,16 @@ class Controller:
         except Exception as exc:            # noqa: BLE001
             logger.warning("could not set up the camera interfaces: %s", exc)
 
+    def overlay_allowed(self):
+        """The old VXLAN/Ethernet overlay (transport/) only on request.
+
+        Off by default (transport.overlay), and never while the cameras use
+        their own VLAN/VXLAN tunnels, which take the same VNIs and port.
+        """
+        if not (self.config.as_dict().get("transport") or {}).get("overlay", False):
+            return False
+        return self.campath.cfg.get("mode") != "vxlan"
+
     def _legacy_overlay_off(self, log=logger.info):
         """Stop the old VXLAN overlay, without forgetting that we are connected.
 
@@ -242,6 +252,22 @@ class Controller:
         try:
             self.step = C.STEP_MODEM
             self.modem.attach(mode=mode, dnn=dnn or self.config.modem.get("dnn"))
+            if not self.overlay_allowed():
+                # The data call is what a resume after reboot needs. The old
+                # VXLAN overlay is not: it held VNI 70/80 with nothing at the far
+                # end, and building it next to the camera tunnels failed and left
+                # the daemon in "error" on every start (9 Oct).
+                self.transport = None
+                self.active_mode = None
+                self.step = C.STEP_DONE
+                with self._lock:
+                    self.state = C.STATE_RUNNING
+                if persist:
+                    self.state_store.save({"connected": True, "mode": mode, "dnn": dnn,
+                                           "wired_nics": wired_nics, "role": role})
+                logger.info("data call up; the old VXLAN overlay is off (transport.overlay)")
+                self.campath.reapply()
+                return {"mode": None, "overlay": False, "camera_path": self.campath.cfg["mode"]}
             self.step = C.STEP_TRANSPORT
             self.transport = make_transport(mode, self.config, self.modem)
             self.active_mode = mode

@@ -70,7 +70,6 @@ export const ROUTES = [
     name: "lab", path: "/lab", title: "TSN Lab", icon: "swap", section: "system",
     load: tabbed("lab", [
       { id: "bridge", title: "TSN bridge", load: () => import("../views/advanced/bridge.js") },
-      { id: "transport", title: "VXLAN transport", load: () => import("../views/advanced/transport.js") },
       { id: "switch", title: "TSN switch", load: () => import("../views/advanced/switch.js") },
     ]),
   },
@@ -82,7 +81,7 @@ export const ROUTES = [
     ["/registration", "/radio?tab=cell"], ["/modem", "/radio?tab=modem"],
     ["/throughput", "/tests?tab=speed"], ["/logs", "/system"],
     ["/diagnostics", "/system?tab=diagnostics"], ["/debug", "/system?tab=debug"],
-    ["/bridge", "/lab"], ["/transport", "/lab?tab=transport"], ["/switch", "/lab?tab=switch"],
+    ["/bridge", "/lab"], ["/transport", "/cameras"], ["/switch", "/lab?tab=switch"],
   ].map(([path, redirect]) => ({ name: `old${path.replace("/", "-")}`, path, redirect, hidden: true })),
 ];
 

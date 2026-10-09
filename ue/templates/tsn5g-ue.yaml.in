@@ -144,6 +144,10 @@ camera_path:
 
 transport:
   mode: vxlan
+  # The old VXLAN overlay (vxlan60/70/80, transport/). Off: the cameras use
+  # their own tunnels (camera_path above), which take the same VNIs. A resume
+  # after reboot then brings up the data call only.
+  overlay: false
 vxlan:
   core_ip: ${CORE_BEARER_IP}
   mtu: 1350
