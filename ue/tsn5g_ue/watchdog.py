@@ -10,7 +10,9 @@ The latency probe already knows when the core stopped answering. After
 `after_s` of silence the watchdog pings the core over the bearer once more,
 so a stopped reflector alone does not cost a rebuild, and then submits the
 same `bearer.rebuild` job the 5G Link page's button runs. At most one attempt
-per `gap_s`, so a gNB that is down for good is not hammered.
+per `gap_s`, so a gNB that is down for good is not hammered, but it keeps
+trying at that pace until the link is back, also when the last attempt left
+the call down (the core was stopped overnight on 8-9 Oct).
 """
 
 import logging
@@ -58,6 +60,7 @@ class LinkWatchdog:
         bearer = self.controller.bearer
         target = self.controller.latency.target
         ping = utils.run(["ping", "-c", "2", "-W", "2", "-I", bearer.iface, target], check=False, timeout=10)
+        # (with no address the ping fails at once, which is the right answer)
         if ping.returncode == 0:
             self.state["reason"] = f"core silent on the probe for {silent:.0f} s but answers ping: reflector down?"
             return

@@ -98,7 +98,10 @@ class LatencyProbe:
         crosses the radio: on 6 Oct the gNB restarted and the modem never
         reconnected, and the UE reported "up" for five hours.
         """
-        if not self.state.get("running") or not self.state.get("bound_to"):
+        # Counted with or without an address: a failed rebuild leaves the call
+        # down, and stopping the count there made the watchdog give up after a
+        # single attempt (8-9 Oct: the core was stopped overnight).
+        if not self.state.get("running"):
             return None
         since = self._last_reply or self._started
         return round(time.monotonic() - since, 1) if since else None
